@@ -7,19 +7,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.javrocket.avplay.AppGraph
@@ -132,80 +132,77 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                     }
                 }
 
+                val bottomBarHeight = rememberMainBottomBarHeight()
                 Box(Modifier.fillMaxSize()) {
-                    Scaffold(
-                        bottomBar = {
-                            if (showBottomNav) {
-                                MainBottomBar(
-                                    selected = mainTab,
-                                    onSelect = { tab ->
-                                        if (tab == mainTab) return@MainBottomBar
-                                        mainTab = tab
-                                        opened = null
-                                        playing = null
-                                        when (tab) {
-                                            MainTab.HuangGuo -> Unit
-                                            MainTab.Home -> {
-                                                if (siteId == SiteIds.HUANGGUO || homeSources.none { it.id == siteId }) {
-                                                    siteId = homeSources.firstOrNull()?.id ?: siteId
-                                                }
-                                            }
-                                        }
-                                    },
-                                )
-                            }
-                        },
-                    ) { padding ->
-                        // 内层页面自带 TopAppBar，外层只留出底栏高度，避免状态栏区域被垫两次
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .padding(bottom = padding.calculateBottomPadding()),
-                        ) {
-                            val active = playing
-                            if (active != null && current != null) {
-                                com.javrocket.avplay.ui.player.PlayerScreen(
-                                    source = source,
-                                    brief = current,
-                                    initial = active,
-                                    library = graph.library,
-                                    portraitFullscreen = huangguoDirectPlay,
-                                    onBack = {
-                                        playing = null
-                                        if (huangguoDirectPlay) opened = null
-                                    },
-                                    onNeedChallenge = { challengeUrl = it },
-                                )
-                            } else if (current == null) {
-                                HomeScreen(
-                                    source = source,
-                                    imageLoader = graph.imageLoader,
-                                    reloadTick = reloadTick,
-                                    library = graph.library,
-                                    onOpen = ::openBrief,
-                                    onNeedChallenge = { challengeUrl = it },
-                                    onOpenSync = { overlay = OVERLAY_SYNC },
-                                    onOpenDiagnostics = { overlay = OVERLAY_DIAG },
-                                    homeSources = if (mainTab == MainTab.Home) homeSources else emptyList(),
-                                    onSelectSource = if (mainTab == MainTab.Home) {
-                                        { id -> siteId = id }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            } else {
-                                DetailScreen(
-                                    source = source,
-                                    brief = current,
-                                    imageLoader = graph.imageLoader,
-                                    library = graph.library,
-                                    reloadTick = reloadTick,
-                                    onBack = { opened = null },
-                                    onNeedChallenge = { challengeUrl = it },
-                                    onPlay = { playing = it },
-                                )
-                            }
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(bottom = if (showBottomNav) bottomBarHeight else 0.dp),
+                    ) {
+                        val active = playing
+                        if (active != null && current != null) {
+                            com.javrocket.avplay.ui.player.PlayerScreen(
+                                source = source,
+                                brief = current,
+                                initial = active,
+                                library = graph.library,
+                                portraitFullscreen = huangguoDirectPlay,
+                                onBack = {
+                                    playing = null
+                                    if (huangguoDirectPlay) opened = null
+                                },
+                                onNeedChallenge = { challengeUrl = it },
+                            )
+                        } else if (current == null) {
+                            HomeScreen(
+                                source = source,
+                                imageLoader = graph.imageLoader,
+                                reloadTick = reloadTick,
+                                library = graph.library,
+                                onOpen = ::openBrief,
+                                onNeedChallenge = { challengeUrl = it },
+                                onOpenSync = { overlay = OVERLAY_SYNC },
+                                onOpenDiagnostics = { overlay = OVERLAY_DIAG },
+                                homeSources = if (mainTab == MainTab.Home) homeSources else emptyList(),
+                                onSelectSource = if (mainTab == MainTab.Home) {
+                                    { id -> siteId = id }
+                                } else {
+                                    null
+                                },
+                            )
+                        } else {
+                            DetailScreen(
+                                source = source,
+                                brief = current,
+                                imageLoader = graph.imageLoader,
+                                library = graph.library,
+                                reloadTick = reloadTick,
+                                onBack = { opened = null },
+                                onNeedChallenge = { challengeUrl = it },
+                                onPlay = { playing = it },
+                            )
                         }
+                    }
+
+                    if (showBottomNav) {
+                        MainBottomBar(
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            selected = mainTab,
+                            onSelect = { tab ->
+                                if (tab == mainTab) return@MainBottomBar
+                                mainTab = tab
+                                opened = null
+                                playing = null
+                                when (tab) {
+                                    MainTab.HuangGuo -> Unit
+                                    MainTab.Home -> {
+                                        if (siteId == SiteIds.HUANGGUO || homeSources.none { it.id == siteId }) {
+                                            siteId = homeSources.firstOrNull()?.id ?: siteId
+                                        }
+                                    }
+                                }
+                            },
+                        )
                     }
 
                     // 浮层必须盖在内容之上、验证浮层之下：同步/诊断里也可能撞到 CF，
@@ -260,13 +257,22 @@ private val NavAccent = Color(0xFFD68A94)
 
 private enum class MainTab { Home, HuangGuo }
 
+private val BottomBarTabsHeight = 38.dp
+
+@Composable
+private fun rememberMainBottomBarHeight(): Dp {
+    val systemNav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    return BottomBarTabsHeight + systemNav
+}
+
 @Composable
 private fun MainBottomBar(
+    modifier: Modifier = Modifier,
     selected: MainTab,
     onSelect: (MainTab) -> Unit,
 ) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface),
     ) {
@@ -274,7 +280,8 @@ private fun MainBottomBar(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(46.dp)
+                .navigationBarsPadding()
+                .height(BottomBarTabsHeight)
                 .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
@@ -292,7 +299,6 @@ private fun MainBottomBar(
                 onClick = { onSelect(MainTab.HuangGuo) },
             )
         }
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }
 
@@ -308,8 +314,7 @@ private fun RowScope.CompactNavItem(
         modifier = Modifier
             .weight(1f)
             .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
@@ -317,12 +322,12 @@ private fun RowScope.CompactNavItem(
             modifier = Modifier
                 .clip(CircleShape)
                 .background(if (selected) NavAccent.copy(alpha = 0.14f) else Color.Transparent)
-                .padding(horizontal = 14.dp, vertical = 3.dp),
+                .padding(horizontal = 12.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = icon,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 color = if (selected) NavAccent else inactive,
             )
         }
