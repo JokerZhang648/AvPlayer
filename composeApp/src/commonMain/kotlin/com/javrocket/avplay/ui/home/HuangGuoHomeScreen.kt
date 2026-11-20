@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -203,11 +205,12 @@ fun HuangGuoHomeScreen(
               verticalArrangement = Arrangement.spacedBy(14.dp),
               modifier = Modifier.fillMaxSize(),
             ) {
-              items(items, key = { "${selectedTab.slug}-${it.id}" }) { item ->
+              itemsIndexed(items, key = { idx, it -> "${selectedTab.slug}-${idx}-${it.id}" }) { index, item ->
                 HuangGuoGridCard(
                   item = item,
                   imageLoader = imageLoader,
                   coverHeaders = coverHeaders,
+                  rank = if (selectedTab.isRankingTab) index + 1 else null,
                   onClick = { onOpen(item) },
                 )
               }
@@ -259,6 +262,7 @@ private fun HuangGuoGridCard(
   item: VideoBrief,
   imageLoader: ImageLoader,
   coverHeaders: Map<String, String>,
+  rank: Int? = null,
   onClick: () -> Unit,
 ) {
   Column(
@@ -278,6 +282,29 @@ private fun HuangGuoGridCard(
         headers = coverHeaders,
         modifier = Modifier.fillMaxSize(),
       )
+      rank?.let { r ->
+        val (bg, size) = when (r) {
+          1 -> Color(0xFFE53935) to 26.dp
+          2 -> Color(0xFFFF7043) to 24.dp
+          3 -> Color(0xFFFFB300) to 24.dp
+          else -> Color(0xCC212121) to 22.dp
+        }
+        Box(
+          modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(6.dp)
+            .background(bg, if (r <= 3) CircleShape else RoundedCornerShape(4.dp))
+            .size(size),
+          contentAlignment = Alignment.Center,
+        ) {
+          Text(
+            text = "$r",
+            color = Color.White,
+            fontSize = if (r <= 3) 14.sp else 11.sp,
+            fontWeight = FontWeight.Bold,
+          )
+        }
+      }
       item.rating?.let { score ->
         Text(
           text = "%.1f分".format(score),
