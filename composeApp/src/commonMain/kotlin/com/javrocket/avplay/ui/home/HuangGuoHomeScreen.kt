@@ -28,12 +28,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +50,7 @@ import com.javrocket.avplay.service.huangguo.HuangGuoSource
 import com.javrocket.avplay.ui.media.ImageLoader
 import com.javrocket.avplay.ui.media.RemoteImage
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * 黄果首页 —— 双列封面网格 + 顶部分类 Tab，对齐原 App「黄果短剧」板块样式。
@@ -103,31 +104,39 @@ fun HuangGuoHomeScreen(
     loading = false
   }
 
-  val shouldLoadMore by remember {
-    derivedStateOf {
+  // 不能用 LaunchedEffect(shouldLoadMore)：loadingMore=true 会让 shouldLoadMore 变 false，
+  // 协程被 Cancel，loadingMore 永远回不来的死锁 —— 表现就是底部分页一直转圈、滑不动。
+  LaunchedEffect(gridState, selectedTab.slug) {
+    snapshotFlow {
       val info = gridState.layoutInfo
-      val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-      last >= info.totalItemsCount - 4 && !loading && !loadingMore && hasMore && !selectedTab.isFeaturedTab
+      val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+      Triple(last, items.size, gridState.canScrollForward)
     }
-  }
+      .distinctUntilChanged()
+      .collect { (lastVisible, dataCount, canScrollForward) ->
+        if (selectedTab.isFeaturedTab || loading || loadingMore || !hasMore || dataCount == 0) return@collect
+        val nearEnd = lastVisible >= dataCount - 3
+        val needFillViewport = !canScrollForward
+        if (!nearEnd && !needFillViewport) return@collect
 
-  LaunchedEffect(shouldLoadMore) {
-    if (!shouldLoadMore) return@LaunchedEffect
-    loadingMore = true
-    val next = page + 1
-    source.service.getCategoryVideos(selectedTab.slug, page = next).fold(
-      onSuccess = { p ->
-        if (p.items.isNotEmpty()) {
-          items = items + p.items
-          page = next
-          hasMore = p.hasMore
-        } else {
-          hasMore = false
-        }
-      },
-      onFailure = { /* 静默：保留已有列表 */ },
-    )
-    loadingMore = false
+        loadingMore = true
+        val next = page + 1
+        source.service.getCategoryVideos(selectedTab.slug, page = next).fold(
+          onSuccess = { p ->
+            if (p.items.isNotEmpty()) {
+              items = items + p.items
+              page = next
+              hasMore = p.hasMore && p.items.isNotEmpty()
+            } else {
+              hasMore = false
+            }
+          },
+          onFailure = {
+            hasMore = false
+          },
+        )
+        loadingMore = false
+      }
   }
 
   Scaffold(

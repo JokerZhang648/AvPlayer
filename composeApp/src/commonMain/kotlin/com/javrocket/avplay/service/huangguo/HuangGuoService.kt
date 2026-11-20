@@ -173,9 +173,12 @@ class HuangGuoService(
             is JsonObject -> root.arrayOf("list", "items", "videos", "rows", "data").mapNotNull { toBrief(it) }
             else -> emptyList()
         }
-        val hasMore = (root as? JsonObject)?.let {
-            it.boolOf("has_more", "hasMore", "more")
-        } ?: (items.size >= DEFAULT_PAGE_SIZE)
+        val explicitMore = (root as? JsonObject)?.boolOf("has_more", "hasMore", "more")
+        val hasMore = when {
+            explicitMore != null -> explicitMore
+            items.isEmpty() -> false
+            else -> items.size >= DEFAULT_PAGE_SIZE
+        }
         return Page(items, page, hasMore)
     }
 
