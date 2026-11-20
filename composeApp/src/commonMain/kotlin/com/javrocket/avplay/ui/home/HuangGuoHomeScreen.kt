@@ -1,6 +1,5 @@
 package com.javrocket.avplay.ui.home
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -8,18 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.javrocket.avplay.core.AppError
@@ -51,8 +46,6 @@ import com.javrocket.avplay.service.huangguo.HuangGuoCategory
 import com.javrocket.avplay.service.huangguo.HuangGuoImageCrypto
 import com.javrocket.avplay.service.huangguo.HuangGuoSource
 import com.javrocket.avplay.ui.media.ImageLoader
-import com.javrocket.avplay.ui.media.RemoteImage
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -206,7 +199,7 @@ fun HuangGuoHomeScreen(
               modifier = Modifier.fillMaxSize(),
             ) {
               itemsIndexed(items, key = { idx, it -> "${selectedTab.slug}-${idx}-${it.id}" }) { index, item ->
-                HuangGuoGridCard(
+                VideoPosterGridCard(
                   item = item,
                   imageLoader = imageLoader,
                   coverHeaders = coverHeaders,
@@ -255,125 +248,4 @@ private fun HuangGuoCategoryTabs(
       )
     }
   }
-}
-
-@Composable
-private fun HuangGuoGridCard(
-  item: VideoBrief,
-  imageLoader: ImageLoader,
-  coverHeaders: Map<String, String>,
-  rank: Int? = null,
-  onClick: () -> Unit,
-) {
-  Column(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clickable(onClick = onClick),
-  ) {
-    Box(
-      modifier = Modifier
-        .fillMaxWidth()
-        .aspectRatio(0.72f)
-        .clip(RoundedCornerShape(10.dp)),
-    ) {
-      RemoteImage(
-        loader = imageLoader,
-        url = item.cover,
-        headers = coverHeaders,
-        modifier = Modifier.fillMaxSize(),
-      )
-      rank?.let { r ->
-        val (bg, size) = when (r) {
-          1 -> Color(0xFFE53935) to 26.dp
-          2 -> Color(0xFFFF7043) to 24.dp
-          3 -> Color(0xFFFFB300) to 24.dp
-          else -> Color(0xCC212121) to 22.dp
-        }
-        Box(
-          modifier = Modifier
-            .align(Alignment.TopStart)
-            .padding(6.dp)
-            .background(bg, if (r <= 3) CircleShape else RoundedCornerShape(4.dp))
-            .size(size),
-          contentAlignment = Alignment.Center,
-        ) {
-          Text(
-            text = "$r",
-            color = Color.White,
-            fontSize = if (r <= 3) 14.sp else 11.sp,
-            fontWeight = FontWeight.Bold,
-          )
-        }
-      }
-      item.rating?.let { score ->
-        Text(
-          text = "%.1f分".format(score),
-          modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(6.dp)
-            .background(Color(0xCCFF9800), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-          color = Color.White,
-          fontSize = 11.sp,
-          fontWeight = FontWeight.Bold,
-        )
-      }
-      item.hot?.let { hot ->
-        Text(
-          text = formatHot(hot),
-          modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(6.dp)
-            .background(Color(0x99000000), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-          color = Color.White,
-          fontSize = 10.sp,
-        )
-      }
-    }
-
-    Text(
-      text = item.title.ifBlank { item.id },
-      style = MaterialTheme.typography.titleSmall,
-      fontWeight = FontWeight.Bold,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.padding(top = 6.dp),
-    )
-
-    item.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
-      Text(
-        text = sub,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(top = 2.dp),
-      )
-    }
-
-    formatEpisodeLine(item.episodeCount, item.isFinished)?.let { line ->
-      Text(
-        text = line,
-        color = Color(0xFFE91E63),
-        fontSize = 12.sp,
-        modifier = Modifier.padding(top = 4.dp),
-      )
-    }
-  }
-}
-
-private fun formatHot(hot: Long): String {
-  val wan = hot / 10000.0
-  return if (wan >= 1.0) {
-    val text = ((wan * 10).roundToInt() / 10.0).toString().removeSuffix(".0")
-    "${text}万热度"
-  } else {
-    "${hot}热度"
-  }
-}
-
-private fun formatEpisodeLine(count: Int?, finished: Boolean?): String? {
-  if (count == null || count <= 0) return null
-  return if (finished == true) "全${count}集" else "更新至${count}集"
 }

@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -37,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.core.SiteIds
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.model.VideoSection
 import com.javrocket.avplay.service.ContentSource
@@ -177,50 +182,115 @@ fun HomeScreen(
 
                 is HomeUiState.Ready -> {
                     val continueList = library.continueWatching(siteId = source.id)
-                    LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                        // 续播入口放在最上面：用户回到 App 最想做的事就是"接着看"
-                        if (continueList.isNotEmpty()) {
-                            item(key = "header-continue") {
-                                Text(
-                                    text = "继续观看",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                )
+                    val posterGrid = source.id == SiteIds.XCHINA
+                    if (posterGrid) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            if (continueList.isNotEmpty()) {
+                                item(key = "header-continue", span = { GridItemSpan(2) }) {
+                                    Text(
+                                        text = "继续观看",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                    )
+                                }
+                                items(
+                                    items = continueList,
+                                    key = { "cont-${it.siteId}-${it.videoId}" },
+                                ) { entry ->
+                                    VideoPosterGridCard(
+                                        item = VideoBrief(
+                                            id = entry.videoId,
+                                            title = entry.title,
+                                            cover = entry.cover,
+                                            sourceSite = entry.siteId,
+                                        ),
+                                        imageLoader = imageLoader,
+                                        coverHeaders = coverHeaders,
+                                        onClick = {
+                                            onOpen(
+                                                VideoBrief(
+                                                    id = entry.videoId,
+                                                    title = entry.title,
+                                                    cover = entry.cover,
+                                                    sourceSite = entry.siteId,
+                                                ),
+                                            )
+                                        },
+                                    )
+                                }
                             }
-                            items(items = continueList, key = { "cont-${it.siteId}-${it.videoId}" }) { entry ->
-                                ContinueRow(
-                                    entry = entry,
-                                    imageLoader = imageLoader,
-                                    coverHeaders = coverHeaders,
-                                    onClick = {
-                                        onOpen(
-                                            VideoBrief(
-                                                id = entry.videoId,
-                                                title = entry.title,
-                                                cover = entry.cover,
-                                                sourceSite = entry.siteId,
-                                            ),
-                                        )
-                                    },
-                                )
+                            s.sections.forEach { section ->
+                                item(key = "header-${section.title}", span = { GridItemSpan(2) }) {
+                                    Text(
+                                        text = section.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                                    )
+                                }
+                                items(
+                                    items = section.items,
+                                    key = { "${section.title}-${it.id}" },
+                                ) { item ->
+                                    VideoPosterGridCard(
+                                        item = item,
+                                        imageLoader = imageLoader,
+                                        coverHeaders = coverHeaders,
+                                        onClick = { onOpen(item) },
+                                    )
+                                }
                             }
                         }
-
-                        s.sections.forEach { section ->
-                            item(key = "header-${section.title}") {
-                                Text(
-                                    text = section.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                )
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+                            if (continueList.isNotEmpty()) {
+                                item(key = "header-continue") {
+                                    Text(
+                                        text = "继续观看",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    )
+                                }
+                                items(items = continueList, key = { "cont-${it.siteId}-${it.videoId}" }) { entry ->
+                                    ContinueRow(
+                                        entry = entry,
+                                        imageLoader = imageLoader,
+                                        coverHeaders = coverHeaders,
+                                        onClick = {
+                                            onOpen(
+                                                VideoBrief(
+                                                    id = entry.videoId,
+                                                    title = entry.title,
+                                                    cover = entry.cover,
+                                                    sourceSite = entry.siteId,
+                                                ),
+                                            )
+                                        },
+                                    )
+                                }
                             }
-                            items(items = section.items, key = { "${section.title}-${it.id}" }) { item ->
-                                VideoRow(
-                                    item = item,
-                                    imageLoader = imageLoader,
-                                    coverHeaders = coverHeaders,
-                                    onClick = { onOpen(item) },
-                                )
+
+                            s.sections.forEach { section ->
+                                item(key = "header-${section.title}") {
+                                    Text(
+                                        text = section.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    )
+                                }
+                                items(items = section.items, key = { "${section.title}-${it.id}" }) { item ->
+                                    VideoRow(
+                                        item = item,
+                                        imageLoader = imageLoader,
+                                        coverHeaders = coverHeaders,
+                                        onClick = { onOpen(item) },
+                                    )
+                                }
                             }
                         }
                     }
