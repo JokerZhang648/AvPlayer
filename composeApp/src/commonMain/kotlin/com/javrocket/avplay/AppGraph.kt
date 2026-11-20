@@ -98,6 +98,7 @@ class AppGraph(
                 XChinaService(
                     baseUrl = settings.baseUrl(SiteIds.XCHINA, XChinaService.DEFAULT_BASE_URL),
                     http = generalHttp(),
+                    aggregator = aggregator,
                 ),
             ),
             JavLibrarySource(

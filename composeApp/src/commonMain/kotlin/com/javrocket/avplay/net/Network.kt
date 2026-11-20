@@ -17,6 +17,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
+import com.javrocket.avplay.parser.originOf
 import kotlinx.serialization.json.Json
 
 /**
@@ -30,6 +31,23 @@ import kotlinx.serialization.json.Json
 expect fun createHttpEngine(): HttpClientEngine
 expect suspend fun platformUserAgent(): String
 expect fun platformLog(tag: String, message: String)
+
+/** WebView / 系统 Cookie 容器里该 URL 的 `Cookie` 请求头（ExoPlayer 不经过 Ktor，需显式带上）。 */
+expect fun platformCookieHeader(url: String): String?
+
+/** 同源 HLS / MP4 防盗链常用头：Origin、Referer、UA，以及与 Ktor 一致的 Cookie。 */
+suspend fun playbackRequestHeaders(sourcePageUrl: String): Map<String, String> {
+    val headers = LinkedHashMap<String, String>()
+    originOf(sourcePageUrl).takeIf { it.isNotBlank() }?.let { headers["Origin"] = it }
+    headers["Referer"] = sourcePageUrl
+    runCatching { platformUserAgent() }.getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { headers["User-Agent"] = it }
+    platformCookieHeader(sourcePageUrl)
+        ?.takeIf { it.isNotBlank() }
+        ?.let { headers["Cookie"] = it }
+    return headers
+}
 
 val AppJson: Json = Json {
     ignoreUnknownKeys = true

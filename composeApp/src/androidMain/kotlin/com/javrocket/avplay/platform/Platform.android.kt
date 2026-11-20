@@ -1,6 +1,7 @@
 package com.javrocket.avplay.platform
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -29,5 +30,16 @@ actual fun setImmersiveFullscreen(enabled: Boolean) {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         WindowInsetsControllerCompat(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
+    }
+}
+
+actual fun setLandscapePlaybackFullscreen(enabled: Boolean) {
+    val activity = AndroidAppContext.get() as? Activity ?: return
+    if (enabled) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        setImmersiveFullscreen(true)
+    } else {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        setImmersiveFullscreen(false)
     }
 }

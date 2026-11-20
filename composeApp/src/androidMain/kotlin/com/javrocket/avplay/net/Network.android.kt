@@ -1,6 +1,7 @@
 package com.javrocket.avplay.net
 
 import android.annotation.SuppressLint
+import android.webkit.CookieManager
 import android.webkit.WebView
 import com.javrocket.avplay.core.AndroidAppContext
 import io.ktor.client.engine.HttpClientEngine
@@ -38,6 +39,11 @@ actual suspend fun platformUserAgent(): String {
             ?: fallback
     }
 }
+
+actual fun platformCookieHeader(url: String): String? =
+    runCatching { CookieManager.getInstance().getCookie(url) }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
 
 actual fun platformLog(tag: String, message: String) {
     // Logcat 单条上限约 4000 字符，超长要分段，否则会被截断丢日志

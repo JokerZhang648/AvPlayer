@@ -8,3 +8,6 @@ expect fun platformName(): String
 
 /** 进入/退出沉浸式全屏（竖屏播放页用）。 */
 expect fun setImmersiveFullscreen(enabled: Boolean)
+
+/** 横屏沉浸式全屏（站内 16:9 播放器点「全屏」用）。 */
+expect fun setLandscapePlaybackFullscreen(enabled: Boolean)

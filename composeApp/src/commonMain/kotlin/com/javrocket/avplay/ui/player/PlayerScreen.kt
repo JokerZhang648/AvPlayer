@@ -1,6 +1,8 @@
 package com.javrocket.avplay.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,9 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.javrocket.avplay.ui.SystemBackHandler
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -19,6 +27,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,9 +42,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.javrocket.avplay.core.AppError
 import com.javrocket.avplay.platform.setImmersiveFullscreen
+import com.javrocket.avplay.platform.setLandscapePlaybackFullscreen
 import com.javrocket.avplay.model.Episode
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
@@ -109,8 +122,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playbackSpeed, portraitFullscreen) {
-        if (portraitFullscreen) player.setPlaybackSpeed(playbackSpeed)
+    LaunchedEffect(playbackSpeed) {
+        player.setPlaybackSpeed(playbackSpeed)
     }
 
     var consumedEndUrl by remember { mutableStateOf<String?>(null) }
@@ -286,6 +299,7 @@ fun PlayerScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            setLandscapePlaybackFullscreen(false)
             persistProgress()
             player.release()
         }
@@ -331,11 +345,79 @@ fun PlayerScreen(
         return
     }
 
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    var landscapeFullscreen by remember { mutableStateOf(false) }
+    val tapVideo = remember { MutableInteractionSource() }
+
+    DisposableEffect(landscapeFullscreen) {
+        setLandscapePlaybackFullscreen(landscapeFullscreen)
+        onDispose {
+            if (landscapeFullscreen) setLandscapePlaybackFullscreen(false)
+        }
+    }
+
+    if (landscapeFullscreen) {
+        SystemBackHandler(enabled = true) { landscapeFullscreen = false }
+        LandscapeFullscreenLayout(
+            currentUrl = current.url,
+            player = player,
+            snapshot = snapshot,
+            playbackSpeed = playbackSpeed,
+            showSpeedMenu = showSpeedMenu,
+            dragging = dragging,
+            dragValue = dragValue,
+            tapVideo = tapVideo,
+            onExitFullscreen = { landscapeFullscreen = false },
+            onTogglePlay = {
+                if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
+            },
+            onOpenSpeedMenu = { showSpeedMenu = true },
+            onDismissSpeedMenu = { showSpeedMenu = false },
+            onSelectSpeed = { playbackSpeed = it },
+            onDragProgress = { v ->
+                dragging = true
+                dragValue = v
+            },
+            onDragProgressFinished = {
+                dragging = false
+                val duration = snapshot.durationMs
+                if (duration > 0) player.seekTo((dragValue * duration).toLong())
+            },
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(brief.title.ifBlank { brief.id }, maxLines = 1) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                actions = {
+                    Box {
+                        TextButton(onClick = { showSpeedMenu = true }) {
+                            Text("${formatSpeedLabel(playbackSpeed)} ▾")
+                        }
+                        DropdownMenu(
+                            expanded = showSpeedMenu,
+                            onDismissRequest = { showSpeedMenu = false },
+                        ) {
+                            PLAYER_SPEED_STEPS.forEach { speed ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            formatSpeedLabel(speed),
+                                            fontWeight = if (speed == playbackSpeed) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        playbackSpeed = speed
+                                        showSpeedMenu = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -344,51 +426,72 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black),
+                    .background(Color.Black)
+                    .clickable(interactionSource = tapVideo, indication = null) {
+                        if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
+                    },
             ) {
-                PlayerSurface(player = player, modifier = Modifier.fillMaxSize())
+                androidx.compose.runtime.key(current.url) {
+                    PlayerSurface(
+                        player = player,
+                        modifier = Modifier.fillMaxSize(),
+                        fillPortraitScreen = true,
+                    )
+                }
+                if (snapshot.status == PlayerStatus.BUFFERING) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White,
+                    )
+                }
+                TextButton(
+                    onClick = { landscapeFullscreen = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.45f)),
+                ) {
+                    Text("全屏", color = Color.White, fontSize = 13.sp)
+                }
             }
 
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Button(onClick = {
-                        if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
-                    }) {
-                        Text(
-                            when (snapshot.status) {
-                                PlayerStatus.PLAYING -> "暂停"
-                                PlayerStatus.BUFFERING -> "缓冲中…"
-                                else -> "播放"
-                            },
-                        )
-                    }
-                    Text(
-                        text = "${fmt(snapshot.positionMs)} / ${fmt(snapshot.durationMs)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 14.dp),
-                    )
-                }
-
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 val duration = snapshot.durationMs
                 if (duration > 0) {
-                    Slider(
-                        value = if (dragging) dragValue else (snapshot.positionMs.toFloat() / duration),
-                        onValueChange = { v ->
-                            dragging = true
-                            dragValue = v
-                        },
-                        onValueChangeFinished = {
-                            dragging = false
-                            player.seekTo((dragValue * duration).toLong())
-                        },
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = fmt(if (dragging) (dragValue * duration).toLong() else snapshot.positionMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.width(48.dp),
+                        )
+                        Slider(
+                            modifier = Modifier.weight(1f),
+                            value = if (dragging) dragValue else (snapshot.positionMs.toFloat() / duration),
+                            onValueChange = { v ->
+                                dragging = true
+                                dragValue = v
+                            },
+                            onValueChangeFinished = {
+                                dragging = false
+                                player.seekTo((dragValue * duration).toLong())
+                            },
+                        )
+                        Text(
+                            text = fmt(duration),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.width(48.dp),
+                        )
+                    }
                 }
 
-                val status = snapshot.status
-                if (status == PlayerStatus.ERROR) {
+                if (snapshot.status == PlayerStatus.ERROR) {
                     Text(
                         text = snapshot.errorMessage ?: "播放失败",
                         color = MaterialTheme.colorScheme.error,
@@ -400,20 +503,131 @@ fun PlayerScreen(
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
 
-                OutlinedButton(
-                    onClick = {
-                        retriedAuth = false
-                        player.prepare(current.url, current.mimeType, current.headers)
-                        player.play()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("重新加载") }
-
-                Text("地址：${current.url.take(90)}", style = MaterialTheme.typography.labelSmall)
+                if (snapshot.status == PlayerStatus.ERROR || authError != null) {
+                    OutlinedButton(
+                        onClick = {
+                            retriedAuth = false
+                            authError = null
+                            player.prepare(current.url, current.mimeType, current.headers)
+                            player.play()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("重新加载") }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun LandscapeFullscreenLayout(
+    currentUrl: String,
+    player: PlatformPlayer,
+    snapshot: com.javrocket.avplay.player.PlayerSnapshot,
+    playbackSpeed: Float,
+    showSpeedMenu: Boolean,
+    dragging: Boolean,
+    dragValue: Float,
+    tapVideo: MutableInteractionSource,
+    onExitFullscreen: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onOpenSpeedMenu: () -> Unit,
+    onDismissSpeedMenu: () -> Unit,
+    onSelectSpeed: (Float) -> Unit,
+    onDragProgress: (Float) -> Unit,
+    onDragProgressFinished: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(interactionSource = tapVideo, indication = null, onClick = onTogglePlay),
+    ) {
+        androidx.compose.runtime.key(currentUrl) {
+            PlayerSurface(
+                player = player,
+                modifier = Modifier.fillMaxSize(),
+                fillPortraitScreen = true,
+            )
+        }
+        if (snapshot.status == PlayerStatus.BUFFERING) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.White,
+            )
+        }
+        TextButton(
+            onClick = onExitFullscreen,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(4.dp),
+        ) {
+            Text("←", color = Color.White, fontSize = 22.sp)
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(4.dp),
+        ) {
+            TextButton(onClick = onOpenSpeedMenu) {
+                Text("${formatSpeedLabel(playbackSpeed)} ▾", color = Color.White)
+            }
+            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = onDismissSpeedMenu) {
+                PLAYER_SPEED_STEPS.forEach { speed ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                formatSpeedLabel(speed),
+                                fontWeight = if (speed == playbackSpeed) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        onClick = {
+                            onSelectSpeed(speed)
+                            onDismissSpeedMenu()
+                        },
+                    )
+                }
+            }
+        }
+        val duration = snapshot.durationMs
+        if (duration > 0) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = fmt(if (dragging) (dragValue * duration).toLong() else snapshot.positionMs),
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.width(48.dp),
+                )
+                Slider(
+                    modifier = Modifier.weight(1f),
+                    value = if (dragging) dragValue else (snapshot.positionMs.toFloat() / duration),
+                    onValueChange = onDragProgress,
+                    onValueChangeFinished = onDragProgressFinished,
+                )
+                Text(
+                    text = fmt(duration),
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.width(48.dp),
+                )
+            }
+        }
+    }
+}
+
+private val PLAYER_SPEED_STEPS = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+
+private fun formatSpeedLabel(speed: Float): String =
+    if (speed == speed.toLong().toFloat()) "${speed.toLong()}x" else "${speed}x"
 
 private fun fmt(ms: Long): String {
     if (ms <= 0) return "00:00"

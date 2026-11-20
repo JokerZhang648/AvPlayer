@@ -2,7 +2,9 @@ package com.javrocket.avplay.net
 
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
+import platform.Foundation.NSHTTPCookieStorage
 import platform.Foundation.NSLog
+import platform.Foundation.NSURL
 
 /**
  * iOS 侧平台实现。对应反编译里 KMP 的 iOS actual 分支（原包内已被编进 Kotlin/Native）。
@@ -18,6 +20,12 @@ actual fun createHttpEngine(): HttpClientEngine = Darwin.create()
 actual suspend fun platformUserAgent(): String =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) " +
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+
+actual fun platformCookieHeader(url: String): String? {
+    val nsUrl = NSURL.URLWithString(url) ?: return null
+    val cookies = NSHTTPCookieStorage.sharedHTTPCookieStorage.cookiesForURL(nsUrl) ?: return null
+    return cookies.joinToString("; ") { "${it.name}=${it.value}" }.takeIf { it.isNotBlank() }
+}
 
 actual fun platformLog(tag: String, message: String) {
     NSLog("%@: %@", tag, message)

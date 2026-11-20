@@ -11,3 +11,5 @@ actual fun platformName(): String =
 actual fun setImmersiveFullscreen(enabled: Boolean) {
     // iOS 全屏由 AVPlayerViewController 自己处理，这里暂无操作
 }
+
+actual fun setLandscapePlaybackFullscreen(enabled: Boolean) = Unit

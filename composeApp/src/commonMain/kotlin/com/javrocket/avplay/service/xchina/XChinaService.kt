@@ -8,9 +8,16 @@ import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.model.VideoDetail
 import com.javrocket.avplay.net.HtmlParsing
 import com.javrocket.avplay.net.bodyTextChecked
+import com.javrocket.avplay.net.playbackRequestHeaders
 import com.javrocket.avplay.parser.ParseOptions
 import com.javrocket.avplay.service.ManagedService
+import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.net.platformLog
+import com.javrocket.avplay.parser.Html
+import com.javrocket.avplay.parser.absolutize
 import com.javrocket.avplay.site.MediaUrlExtractor
+import com.javrocket.avplay.site.aggregator.PlaybackAggregatorService
+import com.javrocket.avplay.site.aggregator.parsePlayerConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -31,6 +38,7 @@ import io.ktor.http.encodeURLParameter
 class XChinaService(
     baseUrl: String,
     private val http: HttpClient,
+    private val aggregator: PlaybackAggregatorService? = null,
 ) : ManagedService {
 
     private val base: String = baseUrl.trimEnd('/')
@@ -97,26 +105,104 @@ class XChinaService(
     // ---- 详情页 → 直链 --------------------------------------------------
 
     /**
-     * 详情页里内嵌播放器配置（新站没有独立下载页），所以直接"抓详情页 + 媒体地址提取"。
-     * 提取逻辑与聚合器共用（`MediaUrlExtractor` 已经处理 `\u0026` 转义、packer 混淆、
-     * 无后缀 m3u8 路径三种情况）。
+     * 详情页里内嵌播放器或第三方嵌入页（新站没有独立 `/download/`）。
+     *
+     * 顺序：详情 HTML 直抠链（含 `PLAYER_CONFIG` 无后缀地址）→ 聚合器从详情/嵌入页向下跳
+     * （与 AVDB 的 `link_embed` 同源逻辑，见 `docs/MIGRATION.md` §2）。
      */
     suspend fun getVideoDownload(id: String): Result<PlaybackInfo> =
-        runServiceOperation("xchina.playback", Timeouts.STANDARD) {
+        runServiceOperation("xchina.playback", Timeouts.LONG) {
             val pageUrl = "$base$PATH_VIDEO$id"
             val html = http.get(pageUrl).bodyTextChecked("xchina.playback")
-            val urls = MediaUrlExtractor.rankedMediaUrls(html)
-            if (urls.isEmpty()) {
-                throw com.javrocket.avplay.core.AppError.Parse("xchina 详情页没有可用媒体地址（可能需会员或已改版）")
+
+            val direct = rankedDirectMedia(html, pageUrl)
+            if (direct != null) {
+                platformLog("XChina", "playback direct id=$id url=${direct.take(72)}")
+                val headers = playbackRequestHeaders(pageUrl)
+                platformLog("XChina", "playback headers=${headers.keys}")
+                return@runServiceOperation PlaybackInfo(
+                    url = direct,
+                    mimeType = "application/x-mpegURL",
+                    headers = headers,
+                    sourcePageUrl = pageUrl,
+                )
             }
-            PlaybackInfo(
-                url = urls.first(),
-                sourcePageUrl = pageUrl,
+
+            val agg = aggregator
+                ?: throw AppError.Parse("xchina 详情页没有直链，且未配置播放聚合器")
+            val embedEntries = findEmbedEntries(html, pageUrl)
+            platformLog(
+                "XChina",
+                "playback via aggregator id=$id embeds=${embedEntries.size} hasIframe=${html.contains("<iframe", ignoreCase = true)}",
             )
+
+            for (entry in embedEntries + pageUrl) {
+                val resolved = agg.playbackFromPage(
+                    pageUrl = entry,
+                    id = id,
+                    referrer = pageUrl,
+                ).getOrNull()
+                if (resolved != null) return@runServiceOperation resolved
+            }
+            throw AppError.Parse("xchina 详情页没有可用媒体地址（可能需登录或站点改版）")
         }
+
+    /** 详情页内可直接播放的地址（站内 player `data-src` → 正则 → `PLAYER_CONFIG`）。 */
+    private fun rankedDirectMedia(html: String, pageUrl: String): String? {
+        extractNativePlayerSrc(html, pageUrl)?.let { return it }
+        val fromRegex = MediaUrlExtractor.rankedMediaUrls(html)
+        val fromConfig = parsePlayerConfig(html).map { it.first }
+        return (fromRegex + fromConfig).firstOrNull()
+    }
+
+    /**
+     * 新站自研播放器：`#video-player` 用相对路径 `data-src="/hls/<id>/master.m3u8"`，
+     * 不含 `https://`，通用正则会漏掉（日志里 `m3u8=true` 但 `urls=0` 就是这个原因）。
+     * VIP 仅影响去广告/下载，不等于没有播放地址。
+     */
+    /**
+     * 第三方播放页入口：iframe、`embed` 链接、常见网盘域直链到播放页。
+     * 详情页常常是"壳"，真链在子页（如 upload18 的 `PLAYER_CONFIG`）。
+     */
+    private fun findEmbedEntries(html: String, pageUrl: String): List<String> {
+        val seen = LinkedHashSet<String>()
+        val doc = Html.parse(html)
+        for (node in doc.select("iframe[src], iframe[data-src]")) {
+            val raw = node.attr("src").ifBlank { node.attr("data-src") }.trim()
+            val abs = absolutize(pageUrl, raw)
+            if (abs.startsWith("http")) seen.add(abs)
+        }
+        val embedHosts = listOf(
+            "upload18.", "helvid.", "dood", "streamtape.", "earnvid", "vidhide", "voe.",
+            "playmogo.", "/play/index/", "/embed/",
+        )
+        for (node in doc.select("a[href]")) {
+            val abs = absolutize(pageUrl, node.attr("href"))
+            if (!abs.startsWith("http")) continue
+            val lower = abs.lowercase()
+            if (embedHosts.any { lower.contains(it) }) seen.add(abs)
+        }
+        return seen.toList()
+    }
 
     companion object {
         const val DEFAULT_BASE_URL = "https://xchina.co"
+
+        internal fun extractNativePlayerSrc(html: String, pageUrl: String): String? {
+            val doc = Html.parse(html)
+            val candidates = buildList {
+                doc.select("#video-player[data-src], [data-src*='m3u8']").forEach { node ->
+                    val raw = node.attr("data-src").trim()
+                    if (raw.isNotBlank()) add(raw)
+                }
+                Regex("""data-src\s*=\s*['"]([^'"]+\.m3u8[^'"]*)['"]""", RegexOption.IGNORE_CASE)
+                    .findAll(html)
+                    .forEach { add(it.groupValues[1]) }
+            }
+            return candidates
+                .map { absolutize(pageUrl, it.trim()) }
+                .firstOrNull { MediaUrlExtractor.isPlayableMediaUrl(it) || it.contains(".m3u8", ignoreCase = true) }
+        }
 
         // 2026-11 改版后的路径（实测 /videos 200、/video/<hash> 403-CF、/download/<id> 404）
         private const val PATH_LIST = "/videos"

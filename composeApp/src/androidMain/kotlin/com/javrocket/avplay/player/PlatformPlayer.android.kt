@@ -22,8 +22,6 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import com.javrocket.avplay.core.AndroidAppContext
 import com.javrocket.avplay.net.platformLog
 import kotlinx.coroutines.CoroutineScope
@@ -198,8 +196,8 @@ actual class PlatformPlayer actual constructor() {
         exo = player
         player.setMediaSource(mediaSource)
         player.prepare()
-        videoTextureView?.let {
-            player.setVideoTextureView(it)
+        videoTextureView?.let { tv ->
+            player.setVideoTextureView(tv)
             player.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
         }
 
@@ -307,25 +305,11 @@ actual class PlatformPlayer actual constructor() {
 
 @Composable
 actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier, fillPortraitScreen: Boolean) {
-  if (fillPortraitScreen) {
-        AndroidView(
-            modifier = modifier,
-            factory = { ctx -> TextureView(ctx) },
-            update = { textureView -> player.attachVideoTextureView(textureView) },
-            onRelease = { textureView -> player.rawPlayer()?.clearVideoTextureView(textureView) },
-        )
-        return
-    }
-
+    // 统一 TextureView：PlayerView 在 prepare 早于 Surface 附着时易「有声无画」（黄果竖屏已验证 TextureView）。
     AndroidView(
         modifier = modifier,
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                useController = false
-                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            }
-        },
-        update = { view -> view.player = player.rawPlayer() },
+        factory = { ctx -> TextureView(ctx) },
+        update = { textureView -> player.attachVideoTextureView(textureView) },
+        onRelease = { textureView -> player.rawPlayer()?.clearVideoTextureView(textureView) },
     )
 }
