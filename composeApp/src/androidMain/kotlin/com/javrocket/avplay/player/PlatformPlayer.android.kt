@@ -14,6 +14,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -55,6 +56,7 @@ actual class PlatformPlayer actual constructor() {
 
     private var exo: ExoPlayer? = null
     private var videoTextureView: TextureView? = null
+    private var fitVideoInView = false
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var pollJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -65,7 +67,21 @@ actual class PlatformPlayer actual constructor() {
     internal fun attachVideoTextureView(textureView: TextureView) {
         videoTextureView = textureView
         exo?.setVideoTextureView(textureView)
-        exo?.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        applyVideoScalingMode()
+    }
+
+    private fun applyVideoScalingMode() {
+        val mode = if (fitVideoInView) {
+            C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+        } else {
+            C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        }
+        exo?.videoScalingMode = mode
+    }
+
+    actual fun setFitVideoInView(fit: Boolean) {
+        fitVideoInView = fit
+        applyVideoScalingMode()
     }
 
     actual fun prepare(url: String, mimeType: String, headers: Map<String, String>) {
@@ -76,6 +92,7 @@ actual class PlatformPlayer actual constructor() {
         }
 
         releasePlayerOnly()
+        _snapshot.update { it.copy(videoWidth = 0, videoHeight = 0) }
 
         platformLog(
             "Playback",
@@ -133,6 +150,17 @@ actual class PlatformPlayer actual constructor() {
                     "type=${g.type} selected=${g.isSelected} n=${g.length}"
                 }
                 platformLog("Playback", "tracks $summary")
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                val w = videoSize.width
+                val h = videoSize.height
+                if (w > 0 && h > 0) {
+                    val rot = videoSize.unappliedRotationDegrees % 360
+                    val (vw, vh) = if (rot == 90 || rot == 270) h to w else w to h
+                    _snapshot.update { it.copy(videoWidth = vw, videoHeight = vh) }
+                    platformLog("Playback", "videoSize ${vw}x$vh rot=$rot")
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -196,10 +224,8 @@ actual class PlatformPlayer actual constructor() {
         exo = player
         player.setMediaSource(mediaSource)
         player.prepare()
-        videoTextureView?.let { tv ->
-            player.setVideoTextureView(tv)
-            player.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-        }
+        videoTextureView?.let { player.setVideoTextureView(it) }
+        applyVideoScalingMode()
 
         pollJob?.cancel()
         pollJob = scope.launch {
@@ -304,12 +330,20 @@ actual class PlatformPlayer actual constructor() {
 }
 
 @Composable
-actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier, fillPortraitScreen: Boolean) {
+actual fun PlayerSurface(
+    player: PlatformPlayer,
+    modifier: Modifier,
+    fillPortraitScreen: Boolean,
+    fitWithinBounds: Boolean,
+) {
     // 统一 TextureView：PlayerView 在 prepare 早于 Surface 附着时易「有声无画」（黄果竖屏已验证 TextureView）。
     AndroidView(
         modifier = modifier,
         factory = { ctx -> TextureView(ctx) },
-        update = { textureView -> player.attachVideoTextureView(textureView) },
+        update = { textureView ->
+            player.setFitVideoInView(fitWithinBounds)
+            player.attachVideoTextureView(textureView)
+        },
         onRelease = { textureView -> player.rawPlayer()?.clearVideoTextureView(textureView) },
     )
 }

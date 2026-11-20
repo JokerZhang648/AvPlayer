@@ -5,15 +5,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.javrocket.avplay.ui.SystemBackHandler
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,8 +54,10 @@ import com.javrocket.avplay.model.Episode
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.player.PlatformPlayer
+import com.javrocket.avplay.player.PlayerSnapshot
 import com.javrocket.avplay.player.PlayerStatus
 import com.javrocket.avplay.player.PlayerSurface
+import com.javrocket.avplay.player.videoAspectRatio
 import com.javrocket.avplay.service.ContentSource
 import com.javrocket.avplay.store.HistoryEntry
 import com.javrocket.avplay.store.LibraryStore
@@ -351,8 +355,12 @@ fun PlayerScreen(
 
     DisposableEffect(landscapeFullscreen) {
         setLandscapePlaybackFullscreen(landscapeFullscreen)
+        player.setFitVideoInView(landscapeFullscreen)
         onDispose {
-            if (landscapeFullscreen) setLandscapePlaybackFullscreen(false)
+            if (landscapeFullscreen) {
+                setLandscapePlaybackFullscreen(false)
+                player.setFitVideoInView(false)
+            }
         }
     }
 
@@ -431,13 +439,13 @@ fun PlayerScreen(
                         if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
                     },
             ) {
-                androidx.compose.runtime.key(current.url) {
-                    PlayerSurface(
-                        player = player,
-                        modifier = Modifier.fillMaxSize(),
-                        fillPortraitScreen = true,
-                    )
-                }
+                VideoSurface(
+                    player = player,
+                    playbackUrl = current.url,
+                    snapshot = snapshot,
+                    modifier = Modifier.fillMaxSize(),
+                    fitWithinBounds = false,
+                )
                 if (snapshot.status == PlayerStatus.BUFFERING) {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
@@ -520,6 +528,43 @@ fun PlayerScreen(
 }
 
 @Composable
+private fun VideoSurface(
+    player: PlatformPlayer,
+    playbackUrl: String,
+    snapshot: PlayerSnapshot,
+    modifier: Modifier = Modifier,
+    fitWithinBounds: Boolean,
+) {
+    val ratio = snapshot.videoAspectRatio()
+    BoxWithConstraints(modifier) {
+        val surfaceModifier = if (fitWithinBounds) {
+            val containerRatio = maxWidth / maxHeight
+            if (containerRatio > ratio) {
+                Modifier
+                    .height(maxHeight)
+                    .aspectRatio(ratio)
+                    .align(Alignment.Center)
+            } else {
+                Modifier
+                    .width(maxWidth)
+                    .aspectRatio(ratio)
+                    .align(Alignment.Center)
+            }
+        } else {
+            Modifier.fillMaxSize()
+        }
+        androidx.compose.runtime.key(playbackUrl) {
+            PlayerSurface(
+                player = player,
+                modifier = surfaceModifier,
+                fillPortraitScreen = true,
+                fitWithinBounds = fitWithinBounds,
+            )
+        }
+    }
+}
+
+@Composable
 private fun LandscapeFullscreenLayout(
     currentUrl: String,
     player: PlatformPlayer,
@@ -543,13 +588,13 @@ private fun LandscapeFullscreenLayout(
             .background(Color.Black)
             .clickable(interactionSource = tapVideo, indication = null, onClick = onTogglePlay),
     ) {
-        androidx.compose.runtime.key(currentUrl) {
-            PlayerSurface(
-                player = player,
-                modifier = Modifier.fillMaxSize(),
-                fillPortraitScreen = true,
-            )
-        }
+        VideoSurface(
+            player = player,
+            playbackUrl = currentUrl,
+            snapshot = snapshot,
+            modifier = Modifier.fillMaxSize(),
+            fitWithinBounds = true,
+        )
         if (snapshot.status == PlayerStatus.BUFFERING) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),

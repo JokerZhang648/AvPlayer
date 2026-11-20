@@ -136,6 +136,8 @@ actual class PlatformPlayer actual constructor() {
         player?.rate = rate
     }
 
+    actual fun setFitVideoInView(fit: Boolean) = Unit
+
     actual fun release() {
         pollJob?.cancel()
         pollJob = null
@@ -155,7 +157,12 @@ actual class PlatformPlayer actual constructor() {
  */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier, fillPortraitScreen: Boolean) {
+actual fun PlayerSurface(
+    player: PlatformPlayer,
+    modifier: Modifier,
+    fillPortraitScreen: Boolean,
+    fitWithinBounds: Boolean,
+) {
     UIKitViewController(
         modifier = modifier,
         factory = {

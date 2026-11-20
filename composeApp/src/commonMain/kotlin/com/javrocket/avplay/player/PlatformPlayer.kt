@@ -16,10 +16,18 @@ data class PlayerSnapshot(
     val status: PlayerStatus = PlayerStatus.IDLE,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    /** 视频帧宽高（解码后），用于按分辨率适配画面区域。 */
+    val videoWidth: Int = 0,
+    val videoHeight: Int = 0,
     /** HTTP 层错误码（401/403/404…），非 HTTP 错误为 null。 */
     val httpCode: Int? = null,
     val errorMessage: String? = null,
 )
+
+fun PlayerSnapshot.videoAspectRatio(): Float {
+    if (videoWidth > 0 && videoHeight > 0) return videoWidth / videoHeight.toFloat()
+    return 16f / 9f
+}
 
 /**
  * 平台播放器契约 —— 只有 5 个动作 + 1 个状态流。
@@ -39,6 +47,8 @@ expect class PlatformPlayer() {
     fun pause()
     fun seekTo(positionMs: Long)
     fun setPlaybackSpeed(speed: Float)
+    /** true：完整显示不裁切（横屏全屏）；false：铺满区域可裁切。 */
+    fun setFitVideoInView(fit: Boolean)
     fun release()
 }
 
@@ -49,4 +59,6 @@ expect fun PlayerSurface(
     modifier: Modifier,
     /** 竖屏全屏：视频铺满屏幕，黑边由播放器缩放处理。 */
     fillPortraitScreen: Boolean = false,
+    /** 与 [PlatformPlayer.setFitVideoInView] 联动，按视频比例留黑边。 */
+    fitWithinBounds: Boolean = false,
 )
