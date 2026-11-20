@@ -48,6 +48,7 @@ import com.javrocket.avplay.service.ContentSource
 import com.javrocket.avplay.service.huangguo.HuangGuoImageCrypto
 import com.javrocket.avplay.service.huangguo.HuangGuoService
 import com.javrocket.avplay.service.huangguo.HuangGuoSource
+import com.javrocket.avplay.service.xchina.XChinaSource
 import com.javrocket.avplay.ui.media.ImageLoader
 import com.javrocket.avplay.ui.media.RemoteThumb
 
@@ -95,6 +96,20 @@ fun HomeScreen(
     var state by remember { mutableStateOf<HomeUiState>(HomeUiState.Loading) }
     var retryKey by remember { mutableIntStateOf(0) }
     var homeTab by remember { mutableStateOf(XChinaHomeTab.HOT) }
+    var showSearch by remember { mutableStateOf(false) }
+    val xchinaSource = source as? XChinaSource
+
+    if (showSearch && xchinaSource != null) {
+        XChinaSearchScreen(
+            source = xchinaSource,
+            imageLoader = imageLoader,
+            reloadTick = reloadTick,
+            onBack = { showSearch = false },
+            onOpen = onOpen,
+            onNeedChallenge = onNeedChallenge,
+        )
+        return
+    }
     val coverHeaders = remember(source.id, source.baseUrl) {
         if (source.id == HuangGuoService.SITE_ID) {
             HuangGuoImageCrypto.imageRequestHeaders(source.baseUrl)
@@ -127,6 +142,9 @@ fun HomeScreen(
                 // 同步与诊断放在顶栏：这两个都是"全局"能力，不属于某个站点，
                 // 挂在站点详情/首页内容里会让人以为是站点功能。
                 actions = {
+                    if (source.id == SiteIds.XCHINA) {
+                        TextButton(onClick = { showSearch = true }) { Text("搜索") }
+                    }
                     TextButton(onClick = onOpenHistory) { Text("历史浏览") }
                     TextButton(onClick = onOpenSync) { Text("同步") }
                     TextButton(onClick = onOpenDiagnostics) { Text("诊断") }

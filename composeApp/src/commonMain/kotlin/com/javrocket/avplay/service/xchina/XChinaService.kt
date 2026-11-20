@@ -76,8 +76,8 @@ class XChinaService(
                 parser = XChinaListParser(),
                 options = ParseOptions(baseUrl = base, page = page, sitePrefix = keyword),
             ) {
-                parameter("keyword", keyword)
-                parameter("page", page)
+                parameter("q", keyword)
+                if (page > 1) parameter("page", page)
             }
         }
 
