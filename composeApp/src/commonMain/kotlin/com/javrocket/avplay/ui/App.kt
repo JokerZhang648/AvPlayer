@@ -151,7 +151,12 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                             }
                         },
                     ) { padding ->
-                        Column(Modifier.fillMaxSize().padding(padding)) {
+                        // 内层页面自带 TopAppBar，外层只留出底栏高度，避免状态栏区域被垫两次
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(bottom = padding.calculateBottomPadding()),
+                        ) {
                             val active = playing
                             if (active != null && current != null) {
                                 com.javrocket.avplay.ui.player.PlayerScreen(
