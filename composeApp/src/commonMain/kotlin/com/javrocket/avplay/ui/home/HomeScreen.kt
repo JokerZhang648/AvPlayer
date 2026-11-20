@@ -1,6 +1,7 @@
 package com.javrocket.avplay.ui.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
@@ -66,6 +69,8 @@ fun HomeScreen(
     onNeedChallenge: (String) -> Unit,
     onOpenSync: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
+    homeSources: List<ContentSource> = emptyList(),
+    onSelectSource: ((String) -> Unit)? = null,
 ) {
     if (source is HuangGuoSource) {
         HuangGuoHomeScreen(
@@ -120,7 +125,15 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (homeSources.isNotEmpty() && onSelectSource != null) {
+                HomeSiteBar(
+                    sources = homeSources,
+                    selectedId = source.id,
+                    onSelect = onSelectSource,
+                )
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             when (val s = state) {
                 HomeUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
 
@@ -212,6 +225,33 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSiteBar(
+    sources: List<ContentSource>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        sources.forEach { s ->
+            TextButton(onClick = { onSelect(s.id) }) {
+                Text(
+                    text = s.displayName,
+                    fontWeight = if (s.id == selectedId) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
     }

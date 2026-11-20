@@ -1,14 +1,9 @@
 package com.javrocket.avplay.ui
 
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -29,14 +24,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.javrocket.avplay.AppGraph
 import com.javrocket.avplay.core.AppError
 import com.javrocket.avplay.core.SiteIds
 import com.javrocket.avplay.model.VideoBrief
-import com.javrocket.avplay.service.ContentSource
 import com.javrocket.avplay.service.huangguo.HuangGuoSource
 import com.javrocket.avplay.ui.challenge.ChallengeSheet
 import com.javrocket.avplay.ui.detail.DetailScreen
@@ -172,13 +165,6 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                     onNeedChallenge = { challengeUrl = it },
                                 )
                             } else if (current == null) {
-                                if (mainTab == MainTab.Home) {
-                                    SiteBar(
-                                        sources = homeSources,
-                                        selectedId = source.id,
-                                        onSelect = { siteId = it },
-                                    )
-                                }
                                 HomeScreen(
                                     source = source,
                                     imageLoader = graph.imageLoader,
@@ -188,6 +174,12 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                     onNeedChallenge = { challengeUrl = it },
                                     onOpenSync = { overlay = OVERLAY_SYNC },
                                     onOpenDiagnostics = { overlay = OVERLAY_DIAG },
+                                    homeSources = if (mainTab == MainTab.Home) homeSources else emptyList(),
+                                    onSelectSource = if (mainTab == MainTab.Home) {
+                                        { id -> siteId = id }
+                                    } else {
+                                        null
+                                    },
                                 )
                             } else {
                                 DetailScreen(
@@ -299,34 +291,3 @@ private fun MainBottomBar(
     }
 }
 
-/**
- * 站点切换条。
- *
- * 站点从 3 个涨到 6 个后，固定 Row 会把英文名挤成省略号甚至互相重叠，
- * 所以改成横向可滚动 —— 手机上"能划到"比"全塞进一屏"更重要（后者会让每个 tab 只剩 1~2 个字）。
- */
-@Composable
-private fun SiteBar(
-    sources: List<ContentSource>,
-    selectedId: String,
-    onSelect: (String) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        sources.forEach { s ->
-            TextButton(onClick = { onSelect(s.id) }) {
-                Text(
-                    text = s.displayName,
-                    fontWeight = if (s.id == selectedId) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-        }
-    }
-}
