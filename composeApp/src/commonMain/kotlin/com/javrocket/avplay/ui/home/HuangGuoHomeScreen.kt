@@ -79,6 +79,8 @@ fun HuangGuoHomeScreen(
   val gridState = rememberLazyGridState()
 
   LaunchedEffect(selectedTab, reloadTick, retryKey) {
+    loadingMore = false
+    gridState.scrollToItem(0)
     loading = true
     error = null
     page = 1
