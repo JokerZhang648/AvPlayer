@@ -20,6 +20,16 @@ class MainActivity : ComponentActivity() {
         AndroidAppContext.init(this)
         setContent { App() }
     }
+
+    override fun onStart() {
+        super.onStart()
+        AndroidAppContext.bindActivity(this)
+    }
+
+    override fun onDestroy() {
+        AndroidAppContext.unbindActivity(this)
+        super.onDestroy()
+    }
 }
 
 @Composable

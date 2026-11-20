@@ -1,7 +1,9 @@
 package com.javrocket.avplay.core
 
+import android.app.Activity
 import android.content.Context
 import android.content.SharedPreferences
+import java.lang.ref.WeakReference
 
 /**
  * Android 侧 KV：SharedPreferences。
@@ -45,9 +47,24 @@ object AndroidAppContext {
     @Volatile
     private var context: Context? = null
 
+    @Volatile
+    private var activityRef: WeakReference<Activity>? = null
+
     fun init(context: Context) {
         this.context = context.applicationContext
+        if (context is Activity) bindActivity(context)
     }
+
+    fun bindActivity(activity: Activity) {
+        activityRef = WeakReference(activity)
+    }
+
+    fun unbindActivity(activity: Activity) {
+        if (activityRef?.get() === activity) activityRef = null
+    }
+
+    /** 需调 Activity API（横竖屏、沉浸式）时用；`get()` 是 ApplicationContext。 */
+    fun getActivity(): Activity? = activityRef?.get()
 
     fun get(): Context? = context
 }

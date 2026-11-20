@@ -14,7 +14,7 @@ actual fun epochMillis(): Long = System.currentTimeMillis()
 actual fun platformName(): String = "Android ${android.os.Build.VERSION.SDK_INT}"
 
 actual fun setImmersiveFullscreen(enabled: Boolean) {
-    val activity = AndroidAppContext.get() as? Activity ?: return
+    val activity = AndroidAppContext.getActivity() ?: return
     val window = activity.window
     if (enabled) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -34,12 +34,14 @@ actual fun setImmersiveFullscreen(enabled: Boolean) {
 }
 
 actual fun setLandscapePlaybackFullscreen(enabled: Boolean) {
-    val activity = AndroidAppContext.get() as? Activity ?: return
-    if (enabled) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        setImmersiveFullscreen(true)
-    } else {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        setImmersiveFullscreen(false)
+    val activity = AndroidAppContext.getActivity() ?: return
+    activity.runOnUiThread {
+        if (enabled) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            setImmersiveFullscreen(true)
+        } else {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            setImmersiveFullscreen(false)
+        }
     }
 }
