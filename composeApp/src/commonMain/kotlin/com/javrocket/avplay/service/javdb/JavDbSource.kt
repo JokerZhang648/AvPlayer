@@ -28,7 +28,7 @@ class JavDbSource(
      * 所以这里必须先借详情页换出番号，否则聚合站按 slug 搜不到任何东西
      * （实测：拿 slug 去搜 javgg，candidates=0）。
      */
-    override suspend fun playback(id: String): Result<PlaybackInfo> {
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> {
         val code = service.detail(id).getOrNull()?.brief?.code?.takeIf { it.isNotBlank() }
         return service.playbackCode(code ?: id)
     }

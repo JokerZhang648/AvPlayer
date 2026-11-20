@@ -5,3 +5,6 @@ expect fun epochMillis(): Long
 
 /** 平台名，用于日志与诊断。 */
 expect fun platformName(): String
+
+/** 进入/退出沉浸式全屏（竖屏播放页用）。 */
+expect fun setImmersiveFullscreen(enabled: Boolean)

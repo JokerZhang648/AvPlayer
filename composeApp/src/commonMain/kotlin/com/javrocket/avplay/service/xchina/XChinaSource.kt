@@ -29,7 +29,8 @@ class XChinaSource(
         }
 
     /** XChina 的下载页直接暴露媒体地址，所以这里可以直出。 */
-    override suspend fun playback(id: String): Result<PlaybackInfo> = service.getVideoDownload(id)
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> =
+        service.getVideoDownload(id)
 
     companion object {
         private const val PAGE_SIZE = 20

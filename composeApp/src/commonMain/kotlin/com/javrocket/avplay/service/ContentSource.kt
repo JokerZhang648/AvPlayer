@@ -34,6 +34,6 @@ interface ContentSource {
      * 直接解析播放地址。默认不支持 —— 需要聚合器二次解析的站点保持这个默认实现，
      * UI 会收到一条可读的失败原因，而不是一个空地址。
      */
-    suspend fun playback(id: String): Result<PlaybackInfo> =
+    suspend fun playback(id: String, episode: Int = 1): Result<PlaybackInfo> =
         Result.failure(AppError.Parse("「$displayName」不支持直接解析播放地址，需要走聚合器"))
 }

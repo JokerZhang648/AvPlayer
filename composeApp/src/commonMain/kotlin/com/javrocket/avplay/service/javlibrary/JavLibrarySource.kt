@@ -37,7 +37,7 @@ class JavLibrarySource(
 
     // JavLibrary 是索引站，详情页不含直链。注意 id 是站点内部 hash，
     // 聚合站认的是**番号**，所以先借详情换出 code 再去聚合 —— 直接拿 hash 搜是搜不到的。
-    override suspend fun playback(id: String): Result<PlaybackInfo> {
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> {
         val agg = aggregator ?: return Result.failure(AppError.Parse("JavLibrary 不含直链，需要聚合器"))
         val code = service.detail(id).getOrNull()?.brief?.code?.takeIf { it.isNotBlank() } ?: id
         return agg.playbackAnySite(code)

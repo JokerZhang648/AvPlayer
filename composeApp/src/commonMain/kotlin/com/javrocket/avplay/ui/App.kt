@@ -20,17 +20,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.AppGraph
+import com.javrocket.avplay.core.AppError
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.service.ContentSource
+import com.javrocket.avplay.service.huangguo.HuangGuoSource
 import com.javrocket.avplay.ui.challenge.ChallengeSheet
 import com.javrocket.avplay.ui.detail.DetailScreen
 import com.javrocket.avplay.ui.home.HomeScreen
+import kotlinx.coroutines.launch
 
 /**
  * 全 App 唯一的根 Composable。Android 的 MainActivity 与 iOS 的 MainViewController
@@ -70,6 +74,9 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
 
                 val source = sources.firstOrNull { it.id == siteId } ?: sources.first()
                 val current = opened
+                val scope = rememberCoroutineScope()
+                var resolvingPlayback by remember { mutableStateOf(false) }
+                val huangguoDirectPlay = source is HuangGuoSource
 
                 Box(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize()) {
@@ -80,7 +87,11 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                 brief = current,
                                 initial = active,
                                 library = graph.library,
-                                onBack = { playing = null },
+                                portraitFullscreen = huangguoDirectPlay,
+                                onBack = {
+                                    playing = null
+                                    if (huangguoDirectPlay) opened = null
+                                },
                                 onNeedChallenge = { challengeUrl = it },
                             )
                         } else if (current == null) {
@@ -90,7 +101,35 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                 imageLoader = graph.imageLoader,
                                 reloadTick = reloadTick,
                                 library = graph.library,
-                                onOpen = { opened = it },
+                                onOpen = { brief ->
+                                    if (source is HuangGuoSource) {
+                                        resolvingPlayback = true
+                                        scope.launch {
+                                            val maxEp = brief.episodeCount?.coerceAtLeast(1) ?: 99
+                                            val resume = graph.library.resumeOf(source.id, brief.id)
+                                            val (ep, _) = resume?.resumeEpisodeAndPosition(maxEp)
+                                                ?: (1 to 0L)
+                                            source.playback(brief.id, ep).fold(
+                                                onSuccess = { info ->
+                                                    opened = brief
+                                                    playing = info
+                                                    resolvingPlayback = false
+                                                },
+                                                onFailure = { err ->
+                                                    resolvingPlayback = false
+                                                    val cf = err as? AppError.CloudflareChallenge
+                                                    if (cf != null) {
+                                                        challengeUrl = cf.url
+                                                    } else {
+                                                        opened = brief
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    } else {
+                                        opened = brief
+                                    }
+                                },
                                 onNeedChallenge = { challengeUrl = it },
                                 onOpenSync = { overlay = OVERLAY_SYNC },
                                 onOpenDiagnostics = { overlay = OVERLAY_DIAG },
@@ -127,6 +166,15 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
 
                                 else -> Unit
                             }
+                        }
+                    }
+
+                    if (resolvingPlayback) {
+                        Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
                         }
                     }
 

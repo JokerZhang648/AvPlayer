@@ -38,9 +38,15 @@ expect class PlatformPlayer() {
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
+    fun setPlaybackSpeed(speed: Float)
     fun release()
 }
 
 /** 视频画面。Android 是 PlayerView，iOS 是 AVPlayerLayer 包出来的 UIView。 */
 @Composable
-expect fun PlayerSurface(player: PlatformPlayer, modifier: Modifier)
+expect fun PlayerSurface(
+    player: PlatformPlayer,
+    modifier: Modifier,
+    /** 竖屏全屏：视频铺满屏幕，黑边由播放器缩放处理。 */
+    fillPortraitScreen: Boolean = false,
+)

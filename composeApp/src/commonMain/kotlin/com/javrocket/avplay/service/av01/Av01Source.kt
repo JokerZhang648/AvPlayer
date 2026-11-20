@@ -54,7 +54,7 @@ class Av01Source(
     override suspend fun search(keyword: String, page: Int): Result<Page<VideoBrief>> =
         service.search(keyword, page)
 
-    override suspend fun playback(id: String): Result<PlaybackInfo> = service.playback(id)
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> = service.playback(id)
 
     companion object {
         val DEFAULT_BASE_URL: String get() = Av01Service.DEFAULT_BASE_URL

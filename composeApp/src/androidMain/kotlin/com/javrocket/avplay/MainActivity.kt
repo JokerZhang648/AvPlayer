@@ -1,5 +1,6 @@
 package com.javrocket.avplay
 
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ import com.javrocket.avplay.ui.App
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        volumeControlStream = AudioManager.STREAM_MUSIC
         // 配置存储与 WebView 取 UA 都要 Context，这里注入一次（见 androidMain/core/KeyValueStore.android.kt）
         AndroidAppContext.init(this)
         setContent { App() }

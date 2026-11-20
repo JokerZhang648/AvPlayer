@@ -23,7 +23,8 @@ class HuangGuoSource(
     override suspend fun search(keyword: String, page: Int): Result<Page<VideoBrief>> =
         service.search(keyword, page)
 
-    override suspend fun playback(id: String): Result<PlaybackInfo> = service.getPlayback(id)
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> =
+        service.getPlayback(id, episode)
 
     companion object {
         val DEFAULT_BASE_URL: String get() = HuangGuoService.DEFAULT_BASE_URL

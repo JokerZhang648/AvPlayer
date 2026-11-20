@@ -33,6 +33,18 @@ data class HistoryEntry(
 
     val progressRatio: Float
         get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+
+    /** 续播用：本集已看完且还有下一集时，从下集 0 秒起播。 */
+    fun resumeEpisodeAndPosition(maxEpisode: Int): Pair<Int, Long> {
+        val max = maxEpisode.coerceAtLeast(1)
+        var ep = episodeIndex.coerceIn(1, max)
+        val finished = durationMs > 0 && positionMs >= durationMs * 0.95
+        if (finished && ep < max) {
+            ep += 1
+            return ep to 0L
+        }
+        return ep to resumePositionMs()
+    }
 }
 
 /** 一次同步的合并结果（UI 用它告诉用户"本次从远端拿到几条"）。 */

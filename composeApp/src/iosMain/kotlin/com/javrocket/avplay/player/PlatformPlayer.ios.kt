@@ -131,6 +131,11 @@ actual class PlatformPlayer actual constructor() {
         player?.seekToTime(platform.CoreMedia.CMTimeMakeWithSeconds(positionMs / 1000.0, 1000L))
     }
 
+    actual fun setPlaybackSpeed(speed: Float) {
+        val rate = speed.coerceIn(0.5f, 2.0f)
+        player?.rate = rate
+    }
+
     actual fun release() {
         pollJob?.cancel()
         pollJob = null
@@ -150,7 +155,7 @@ actual class PlatformPlayer actual constructor() {
  */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier) {
+actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier, fillPortraitScreen: Boolean) {
     UIKitViewController(
         modifier = modifier,
         factory = {

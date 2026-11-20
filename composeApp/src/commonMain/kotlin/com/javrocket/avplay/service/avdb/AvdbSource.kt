@@ -34,8 +34,8 @@ class AvdbSource(
      * AVDB 只给"嵌入页"（`link_embed` → 第三方播放页），不给直链。
      * 所以这里分两步：先问接口拿入口，入口不是直链时交给聚合器顺着页面向下跳一跳。
      */
-    override suspend fun playback(id: String): Result<PlaybackInfo> {
-        val info = service.playback(id).getOrElse { return Result.failure(it) }
+    override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> {
+        val info = service.playback(id, episode).getOrElse { return Result.failure(it) }
         if (isDirectMedia(info.url) || info.url.isBlank()) return Result.success(info)
         val agg = aggregator
             ?: return Result.failure(AppError.Parse("AVDB 只返回嵌入页，但没有接聚合器"))

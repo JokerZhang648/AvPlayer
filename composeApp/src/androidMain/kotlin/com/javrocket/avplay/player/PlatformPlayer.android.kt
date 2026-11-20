@@ -3,9 +3,17 @@ package com.javrocket.avplay.player
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import android.content.Context
+import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
+import android.os.Build
+import android.view.TextureView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -13,6 +21,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.javrocket.avplay.core.AndroidAppContext
 import com.javrocket.avplay.net.platformLog
@@ -46,11 +56,19 @@ actual class PlatformPlayer actual constructor() {
     actual var onHttpError: ((Int) -> Unit)? = null
 
     private var exo: ExoPlayer? = null
+    private var videoTextureView: TextureView? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
     private var pollJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** 供 PlayerSurface 使用（同一 sourceSet 内可见）。 */
     internal fun rawPlayer(): ExoPlayer? = exo
+
+    internal fun attachVideoTextureView(textureView: TextureView) {
+        videoTextureView = textureView
+        exo?.setVideoTextureView(textureView)
+        exo?.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+    }
 
     actual fun prepare(url: String, mimeType: String, headers: Map<String, String>) {
         val ctx = AndroidAppContext.get()
@@ -92,13 +110,38 @@ actual class PlatformPlayer actual constructor() {
         // 必须有它：AV01 的播放列表是「已带 token 的本地 m3u8」，直接给 httpFactory 读不了 file://
         val dataSourceFactory = DefaultDataSource.Factory(ctx, httpFactory)
 
+        val trackSelector = DefaultTrackSelector(ctx).apply {
+            parameters = buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .build()
+        }
+
         val player = ExoPlayer.Builder(ctx)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus= */ true,
+            )
             .build()
+        player.volume = 1f
 
         player.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                val summary = tracks.groups.joinToString { g ->
+                    "type=${g.type} selected=${g.isSelected} n=${g.length}"
+                }
+                platformLog("Playback", "tracks $summary")
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 platformLog("Playback", "state=$playbackState")
+                if (playbackState == Player.STATE_READY) {
+                    boostPlaybackAudio(ctx, player)
+                }
                 val status = when (playbackState) {
                     Player.STATE_BUFFERING -> PlayerStatus.BUFFERING
                     Player.STATE_READY -> if (player.playWhenReady) PlayerStatus.PLAYING else PlayerStatus.PAUSED
@@ -155,20 +198,38 @@ actual class PlatformPlayer actual constructor() {
         exo = player
         player.setMediaSource(mediaSource)
         player.prepare()
+        videoTextureView?.let {
+            player.setVideoTextureView(it)
+            player.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        }
 
         pollJob?.cancel()
         pollJob = scope.launch {
             while (true) {
                 val p = exo ?: break
                 val duration = p.duration.takeIf { it > 0 } ?: 0L
-                _snapshot.update { it.copy(positionMs = p.currentPosition, durationMs = duration) }
+                val position = p.currentPosition
+                val atEnd = duration > 3000 && position >= duration - 300
+                val status = when {
+                    p.playbackState == Player.STATE_ENDED -> PlayerStatus.ENDED
+                    atEnd && (p.playbackState == Player.STATE_BUFFERING || !p.isPlaying) -> PlayerStatus.ENDED
+                    p.isPlaying -> PlayerStatus.PLAYING
+                    p.playbackState == Player.STATE_BUFFERING -> PlayerStatus.BUFFERING
+                    else -> _snapshot.value.status
+                }
+                _snapshot.update {
+                    it.copy(positionMs = position, durationMs = duration, status = status)
+                }
                 delay(500)
             }
         }
     }
 
     actual fun play() {
-        exo?.playWhenReady = true
+        exo?.apply {
+            volume = 1f
+            playWhenReady = true
+        }
     }
 
     actual fun pause() {
@@ -179,6 +240,15 @@ actual class PlatformPlayer actual constructor() {
         exo?.seekTo(positionMs)
     }
 
+    actual fun setPlaybackSpeed(speed: Float) {
+        val s = speed.coerceIn(0.5f, 2.0f)
+        exo?.apply {
+            setPlaybackSpeed(s)
+            // 倍速也应保持正常音量；部分机型仅设 speed 会误判为「无声」
+            volume = 1f
+        }
+    }
+
     actual fun release() {
         pollJob?.cancel()
         pollJob = null
@@ -187,23 +257,73 @@ actual class PlatformPlayer actual constructor() {
     }
 
     private fun releasePlayerOnly() {
+        releaseAudioFx()
         exo?.let { p ->
             runCatching { p.stop() }
             runCatching { p.release() }
         }
         exo = null
     }
+
+    private fun releaseAudioFx() {
+        runCatching { loudnessEnhancer?.release() }
+        loudnessEnhancer = null
+    }
+
+    private fun isEmulator(): Boolean {
+        val model = Build.MODEL.orEmpty()
+        val product = Build.PRODUCT.orEmpty()
+        val fingerprint = Build.FINGERPRINT.orEmpty()
+        return model.contains("sdk_gphone", ignoreCase = true) ||
+            model.contains("Emulator", ignoreCase = true) ||
+            product.contains("sdk", ignoreCase = true) ||
+            fingerprint.contains("generic", ignoreCase = true)
+    }
+
+  /** 模拟器经 QEMU 到电脑音箱的链路增益偏低，必要时用 LoudnessEnhancer 补一截。 */
+    private fun boostPlaybackAudio(ctx: Context, player: ExoPlayer) {
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+        player.volume = 1f
+
+        val sessionId = player.audioSessionId
+        if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
+
+        releaseAudioFx()
+        val emulator = isEmulator()
+        val gainMb = if (emulator) 1500 else 400
+        runCatching {
+            loudnessEnhancer = LoudnessEnhancer(sessionId).apply {
+                setTargetGain(gainMb)
+                enabled = true
+            }
+            platformLog("Playback", "audio boost session=$sessionId gain=${gainMb}mB emulator=$emulator")
+        }.onFailure {
+            platformLog("Playback", "audio boost failed: ${it.message}")
+        }
+    }
 }
 
 @Composable
-actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier) {
+actual fun PlayerSurface(player: PlatformPlayer, modifier: Modifier, fillPortraitScreen: Boolean) {
+  if (fillPortraitScreen) {
+        AndroidView(
+            modifier = modifier,
+            factory = { ctx -> TextureView(ctx) },
+            update = { textureView -> player.attachVideoTextureView(textureView) },
+            onRelease = { textureView -> player.rawPlayer()?.clearVideoTextureView(textureView) },
+        )
+        return
+    }
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             PlayerView(ctx).apply {
-                // 用自己的控制条（共享 UI），关掉 ExoPlayer 自带的，避免两套控件打架
                 useController = false
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
         },
         update = { view -> view.player = player.rawPlayer() },

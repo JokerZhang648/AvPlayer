@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -24,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -32,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.platform.setImmersiveFullscreen
+import com.javrocket.avplay.model.Episode
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.player.PlatformPlayer
@@ -60,6 +64,8 @@ fun PlayerScreen(
     library: LibraryStore,
     onBack: () -> Unit,
     onNeedChallenge: (String) -> Unit,
+    /** 黄果短剧：竖屏铺满、隐藏导航栏，单击画面暂停/继续。 */
+    portraitFullscreen: Boolean = false,
 ) {
     val player = remember { PlatformPlayer() }
     val snapshot by player.snapshot.collectAsState()
@@ -73,13 +79,163 @@ fun PlayerScreen(
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
+    val maxEpisodesHint = brief.episodeCount?.coerceAtLeast(1) ?: 1
+    var episodeIndex by remember(brief.id) {
+        mutableIntStateOf(
+            library.resumeOf(source.id, brief.id)
+                ?.resumeEpisodeAndPosition(maxEpisodesHint)
+                ?.first
+                ?: 1,
+        )
+    }
+    var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
+    var episodeLine by remember { mutableStateOf(brief.subtitle) }
+    var showEpisodeSheet by remember { mutableStateOf(false) }
+    var playbackSpeed by remember { mutableFloatStateOf(1f) }
+    var switchingEpisode by remember { mutableStateOf(false) }
+    val totalEpisodes = remember(episodes, brief.episodeCount) {
+        when {
+            episodes.isNotEmpty() -> episodes.maxOf { it.index }
+            brief.episodeCount != null && brief.episodeCount!! > 0 -> brief.episodeCount!!
+            else -> 1
+        }
+    }
+
+    LaunchedEffect(brief.id, portraitFullscreen) {
+        if (!portraitFullscreen) return@LaunchedEffect
+        source.detail(brief.id).onSuccess { detail ->
+            episodes = detail.episodes
+            episodeLine = detail.description.takeIf { it.isNotBlank() } ?: brief.subtitle
+        }
+    }
+
+    LaunchedEffect(playbackSpeed, portraitFullscreen) {
+        if (portraitFullscreen) player.setPlaybackSpeed(playbackSpeed)
+    }
+
+    var consumedEndUrl by remember { mutableStateOf<String?>(null) }
+
+    fun persistProgress(positionMs: Long = player.snapshot.value.positionMs) {
+        val s = player.snapshot.value
+        val pos = if (positionMs > 0) positionMs else s.positionMs
+        if (pos <= 0 && s.durationMs <= 0) return
+        library.record(
+            HistoryEntry(
+                siteId = source.id,
+                videoId = brief.id,
+                title = brief.title,
+                cover = brief.cover,
+                positionMs = pos,
+                durationMs = s.durationMs,
+                episodeIndex = episodeIndex,
+            ),
+        )
+    }
+
+    fun switchEpisode(ep: Int) {
+        if (ep == episodeIndex) {
+            showEpisodeSheet = false
+            return
+        }
+        persistProgress()
+        scope.launch {
+            switchingEpisode = true
+            showEpisodeSheet = false
+            retriedAuth = false
+            authError = null
+            source.playback(brief.id, ep).fold(
+                onSuccess = { info ->
+                    current = info
+                    episodeIndex = ep
+                    switchingEpisode = false
+                    library.record(
+                        HistoryEntry(
+                            siteId = source.id,
+                            videoId = brief.id,
+                            title = brief.title,
+                            cover = brief.cover,
+                            positionMs = 0,
+                            durationMs = 0,
+                            episodeIndex = ep,
+                        ),
+                    )
+                },
+                onFailure = {
+                    switchingEpisode = false
+                    authError = it.message ?: "切换集数失败"
+                },
+            )
+        }
+    }
+
+    fun advanceToNextEpisodeIfNeeded(forceNearEnd: Boolean = false) {
+        if (!portraitFullscreen) return
+        if (consumedEndUrl == current.url) return
+        val snap = player.snapshot.value
+        val dur = snap.durationMs
+        val pos = snap.positionMs
+        val ended = snap.status == PlayerStatus.ENDED
+        val nearComplete = forceNearEnd || (dur > 3000 && pos >= dur - 2000)
+        if (!ended && !nearComplete) return
+        if (episodeIndex >= totalEpisodes) {
+            consumedEndUrl = current.url
+            persistProgress(dur.coerceAtLeast(pos))
+            return
+        }
+        consumedEndUrl = current.url
+        persistProgress(dur.coerceAtLeast(pos))
+        val next = episodeIndex + 1
+        library.record(
+            HistoryEntry(
+                siteId = source.id,
+                videoId = brief.id,
+                title = brief.title,
+                cover = brief.cover,
+                positionMs = 0,
+                durationMs = 0,
+                episodeIndex = next,
+            ),
+        )
+        switchEpisode(next)
+    }
+
     // 换地址就重建播放器（换集不串台的保证：prepare 内部会销毁旧 ExoPlayer）
     LaunchedEffect(current.url) {
+        consumedEndUrl = null
         player.prepare(current.url, current.mimeType, current.headers)
         val resume = library.resumeOf(source.id, brief.id)
-        val startAt = resume?.resumePositionMs() ?: 0L
+        val maxEp = totalEpisodes.coerceAtLeast(1)
+        val (resumeEp, resumePos) = resume?.resumeEpisodeAndPosition(maxEp) ?: (episodeIndex to 0L)
+        val startAt = if (resumeEp == episodeIndex) resumePos else 0L
         if (startAt > 3000) player.seekTo(startAt)
+        if (portraitFullscreen) player.setPlaybackSpeed(playbackSpeed)
         player.play()
+    }
+
+    LaunchedEffect(
+        snapshot.status,
+        snapshot.positionMs,
+        snapshot.durationMs,
+        current.url,
+        episodeIndex,
+        totalEpisodes,
+        portraitFullscreen,
+    ) {
+        if (!portraitFullscreen) return@LaunchedEffect
+        if (consumedEndUrl == current.url) return@LaunchedEffect
+        val dur = snapshot.durationMs
+        val pos = snapshot.positionMs
+        val ended = snapshot.status == PlayerStatus.ENDED
+        val nearComplete = dur > 3000 && pos >= dur - 2000
+        if (!ended && !nearComplete) return@LaunchedEffect
+        // HLS 片尾常会卡在 BUFFERING 等下一片段，不应阻止自动连播
+        if (!ended && !nearComplete && snapshot.status == PlayerStatus.BUFFERING) return@LaunchedEffect
+        delay(600)
+        val s2 = player.snapshot.value
+        val stillDone = s2.status == PlayerStatus.ENDED ||
+            (s2.durationMs > 3000 && s2.positionMs >= s2.durationMs - 2000)
+        if (!stillDone) return@LaunchedEffect
+        advanceToNextEpisodeIfNeeded(forceNearEnd = true)
     }
 
     // 401/403 自动重试：重新解析一次播放地址
@@ -88,7 +244,7 @@ fun PlayerScreen(
             retriedAuth = true
             authError = "播放凭据被拒绝（HTTP $code），正在重新获取地址…"
             scope.launch {
-                source.playback(brief.id).fold(
+                source.playback(brief.id, episodeIndex).fold(
                     onSuccess = { info ->
                         authError = null
                         current = info
@@ -107,44 +263,72 @@ fun PlayerScreen(
         }
     }
 
-    // 每 5 秒落一次进度：比"退出时记一次"可靠 —— 进程被杀时也不会丢
-    LaunchedEffect(player) {
+    // 每 3 秒落一次进度，退出时再补一次
+    LaunchedEffect(player, episodeIndex) {
         while (true) {
-            delay(5000)
+            delay(3000)
             val s = player.snapshot.value
-            if (s.positionMs > 0) {
-                library.record(
-                    HistoryEntry(
-                        siteId = source.id,
-                        videoId = brief.id,
-                        title = brief.title,
-                        cover = brief.cover,
-                        positionMs = s.positionMs,
-                        durationMs = s.durationMs,
-                    ),
-                )
+            if (s.positionMs > 0 && s.status != PlayerStatus.ENDED) {
+                persistProgress()
             }
+            if (portraitFullscreen && episodeIndex < totalEpisodes) {
+                advanceToNextEpisodeIfNeeded()
+            }
+        }
+    }
+
+    DisposableEffect(portraitFullscreen) {
+        if (portraitFullscreen) setImmersiveFullscreen(true)
+        onDispose {
+            if (portraitFullscreen) setImmersiveFullscreen(false)
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            // 退出时立刻落一次，避免最多丢 5 秒进度
-            val s = player.snapshot.value
-            if (s.positionMs > 0) {
-                library.record(
-                    HistoryEntry(
-                        siteId = source.id,
-                        videoId = brief.id,
-                        title = brief.title,
-                        cover = brief.cover,
-                        positionMs = s.positionMs,
-                        durationMs = s.durationMs,
-                    ),
-                )
-            }
+            persistProgress()
             player.release()
         }
+    }
+
+    if (portraitFullscreen) {
+        HuangGuoPortraitPlayer(
+            player = player,
+            playbackUrl = current.url,
+            snapshot = snapshot,
+            brief = brief,
+            episodeIndex = episodeIndex,
+            totalEpisodes = totalEpisodes,
+            episodeLine = episodeLine,
+            playbackSpeed = playbackSpeed,
+            episodes = episodes,
+            switchingEpisode = switchingEpisode,
+            showEpisodeSheet = showEpisodeSheet,
+            dragging = dragging,
+            dragValue = dragValue,
+            onBack = onBack,
+            onTogglePlay = {
+                if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
+            },
+            onSelectSpeed = { playbackSpeed = it },
+            onOpenEpisodes = { showEpisodeSheet = true },
+            onDismissEpisodes = { showEpisodeSheet = false },
+            onSelectEpisode = { switchEpisode(it) },
+            onDragProgress = { v ->
+                dragging = true
+                dragValue = v
+            },
+            onDragProgressFinished = { v ->
+                dragging = false
+                val duration = snapshot.durationMs
+                if (duration > 0) {
+                    val pos = (v * duration).toLong()
+                    player.seekTo(pos)
+                    persistProgress(pos)
+                }
+            },
+        )
+        return
     }
 
     Scaffold(
