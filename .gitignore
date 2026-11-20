@@ -1,0 +1,27 @@
+# 构建产物
+.gradle/
+build/
+out/
+.kotlin/
+*.iml
+
+# 本机 Android SDK 路径（勿提交）
+local.properties
+
+# IDE（可本地保留）
+.idea/
+*.ipr
+*.iws
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 日志 / 临时
+*.log
+*.hprof
+
+# 密钥（若有）
+*.jks
+*.keystore
+**/*credentials*

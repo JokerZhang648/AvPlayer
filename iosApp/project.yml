@@ -1,0 +1,47 @@
+name: iosApp
+options:
+  bundleIdPrefix: com.javrocket
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Kotlin 框架由 Gradle 建到 composeApp/build/xcode-frameworks 下，
+    # 所以必须关掉 Xcode 15+ 的脚本沙箱，否则 gradlew 读不到工程目录
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_VERSION: "5.0"
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+      properties:
+        CFBundleDisplayName: AvPlay
+        CFBundleShortVersionString: "0.1.0"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        # 播放器要支持后台音频 / HLS，Phase 4 会用到
+        UIBackgroundModes:
+          - audio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.javrocket.avplay
+        FRAMEWORK_SEARCH_PATHS: $(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS: $(inherited) -framework ComposeApp
+        CODE_SIGN_STYLE: Automatic
+    preBuildScripts:
+      - name: Compile Kotlin Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode
