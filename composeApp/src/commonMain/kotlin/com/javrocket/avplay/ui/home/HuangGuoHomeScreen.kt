@@ -86,22 +86,34 @@ fun HuangGuoHomeScreen(
     hasMore = !selectedTab.isFeaturedTab
     items = emptyList()
     try {
-      if (selectedTab.isFeaturedTab) {
-        source.service.getFeaturedList().fold(
-          onSuccess = { list ->
-            items = list
-            hasMore = false
-          },
-          onFailure = { error = it },
-        )
-      } else {
-        source.service.getCategoryVideos(selectedTab.slug, page = 1).fold(
-          onSuccess = { p ->
-            items = p.items
-            hasMore = p.hasMore
-          },
-          onFailure = { error = it },
-        )
+      when {
+        selectedTab.isFeaturedTab -> {
+          source.service.getFeaturedList().fold(
+            onSuccess = { list ->
+              items = list
+              hasMore = false
+            },
+            onFailure = { error = it },
+          )
+        }
+        selectedTab.isRankingTab -> {
+          source.service.getRanking(selectedTab.slug, page = 1).fold(
+            onSuccess = { p ->
+              items = p.items
+              hasMore = p.hasMore
+            },
+            onFailure = { error = it },
+          )
+        }
+        else -> {
+          source.service.getCategoryVideos(selectedTab.slug, page = 1).fold(
+            onSuccess = { p ->
+              items = p.items
+              hasMore = p.hasMore
+            },
+            onFailure = { error = it },
+          )
+        }
       }
     } finally {
       loading = false
@@ -161,7 +173,12 @@ fun HuangGuoHomeScreen(
 
                   loadingMore = true
                   val next = page + 1
-                  source.service.getCategoryVideos(selectedTab.slug, page = next).fold(
+                  val pageResult = if (selectedTab.isRankingTab) {
+                    source.service.getRanking(selectedTab.slug, page = next)
+                  } else {
+                    source.service.getCategoryVideos(selectedTab.slug, page = next)
+                  }
+                  pageResult.fold(
                     onSuccess = { p ->
                       if (p.items.isNotEmpty()) {
                         items = items + p.items
