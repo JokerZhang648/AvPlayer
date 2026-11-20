@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,10 +28,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.javrocket.avplay.AppGraph
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.core.SiteIds
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.service.ContentSource
 import com.javrocket.avplay.service.huangguo.HuangGuoSource
@@ -64,7 +71,14 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                 }
             } else {
                 val sources = graph.sources()
-                var siteId by remember { mutableStateOf(sources.first().id) }
+                val homeSources = remember(sources) { sources.filter { it.id != SiteIds.HUANGGUO } }
+                val huangguoSource = remember(sources) {
+                    sources.filterIsInstance<HuangGuoSource>().firstOrNull()
+                }
+                var mainTab by remember { mutableStateOf(MainTab.Home) }
+                var siteId by remember(homeSources) {
+                    mutableStateOf(homeSources.firstOrNull()?.id ?: sources.first().id)
+                }
                 var opened by remember { mutableStateOf<VideoBrief?>(null) }
                 // 正在播放的地址；非空时进播放页（播放页自带返回）
                 var playing by remember { mutableStateOf<com.javrocket.avplay.model.PlaybackInfo?>(null) }
@@ -72,79 +86,116 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                 // 是为了从结构上保证"两者不会同时打开"。
                 var overlay by remember { mutableStateOf<String?>(null) }
 
-                val source = sources.firstOrNull { it.id == siteId } ?: sources.first()
+                val source = when (mainTab) {
+                    MainTab.HuangGuo -> huangguoSource ?: sources.first()
+                    MainTab.Home -> homeSources.firstOrNull { it.id == siteId }
+                        ?: homeSources.firstOrNull()
+                        ?: sources.first()
+                }
                 val current = opened
                 val scope = rememberCoroutineScope()
                 var resolvingPlayback by remember { mutableStateOf(false) }
                 val huangguoDirectPlay = source is HuangGuoSource
+                val showBottomNav = playing == null && current == null
 
-                Box(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize()) {
-                        val active = playing
-                        if (active != null && current != null) {
-                            com.javrocket.avplay.ui.player.PlayerScreen(
-                                source = source,
-                                brief = current,
-                                initial = active,
-                                library = graph.library,
-                                portraitFullscreen = huangguoDirectPlay,
-                                onBack = {
-                                    playing = null
-                                    if (huangguoDirectPlay) opened = null
+                fun openBrief(brief: VideoBrief) {
+                    if (source is HuangGuoSource) {
+                        resolvingPlayback = true
+                        scope.launch {
+                            val maxEp = brief.episodeCount?.coerceAtLeast(1) ?: 99
+                            val resume = graph.library.resumeOf(source.id, brief.id)
+                            val (ep, _) = resume?.resumeEpisodeAndPosition(maxEp) ?: (1 to 0L)
+                            source.playback(brief.id, ep).fold(
+                                onSuccess = { info ->
+                                    opened = brief
+                                    playing = info
+                                    resolvingPlayback = false
                                 },
-                                onNeedChallenge = { challengeUrl = it },
-                            )
-                        } else if (current == null) {
-                            SiteBar(sources = sources, selectedId = source.id, onSelect = { siteId = it })
-                            HomeScreen(
-                                source = source,
-                                imageLoader = graph.imageLoader,
-                                reloadTick = reloadTick,
-                                library = graph.library,
-                                onOpen = { brief ->
-                                    if (source is HuangGuoSource) {
-                                        resolvingPlayback = true
-                                        scope.launch {
-                                            val maxEp = brief.episodeCount?.coerceAtLeast(1) ?: 99
-                                            val resume = graph.library.resumeOf(source.id, brief.id)
-                                            val (ep, _) = resume?.resumeEpisodeAndPosition(maxEp)
-                                                ?: (1 to 0L)
-                                            source.playback(brief.id, ep).fold(
-                                                onSuccess = { info ->
-                                                    opened = brief
-                                                    playing = info
-                                                    resolvingPlayback = false
-                                                },
-                                                onFailure = { err ->
-                                                    resolvingPlayback = false
-                                                    val cf = err as? AppError.CloudflareChallenge
-                                                    if (cf != null) {
-                                                        challengeUrl = cf.url
-                                                    } else {
-                                                        opened = brief
-                                                    }
-                                                },
-                                            )
-                                        }
+                                onFailure = { err ->
+                                    resolvingPlayback = false
+                                    val cf = err as? AppError.CloudflareChallenge
+                                    if (cf != null) {
+                                        challengeUrl = cf.url
                                     } else {
                                         opened = brief
                                     }
                                 },
-                                onNeedChallenge = { challengeUrl = it },
-                                onOpenSync = { overlay = OVERLAY_SYNC },
-                                onOpenDiagnostics = { overlay = OVERLAY_DIAG },
                             )
-                        } else {
-                            DetailScreen(
-                                source = source,
-                                brief = current,
-                                imageLoader = graph.imageLoader,
-                                library = graph.library,
-                                reloadTick = reloadTick,
-                                onBack = { opened = null },
-                                onNeedChallenge = { challengeUrl = it },
-                                onPlay = { playing = it },
-                            )
+                        }
+                    } else {
+                        opened = brief
+                    }
+                }
+
+                Box(Modifier.fillMaxSize()) {
+                    Scaffold(
+                        bottomBar = {
+                            if (showBottomNav) {
+                                MainBottomBar(
+                                    selected = mainTab,
+                                    onSelect = { tab ->
+                                        if (tab == mainTab) return@MainBottomBar
+                                        mainTab = tab
+                                        opened = null
+                                        playing = null
+                                        when (tab) {
+                                            MainTab.HuangGuo -> Unit
+                                            MainTab.Home -> {
+                                                if (siteId == SiteIds.HUANGGUO || homeSources.none { it.id == siteId }) {
+                                                    siteId = homeSources.firstOrNull()?.id ?: siteId
+                                                }
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        },
+                    ) { padding ->
+                        Column(Modifier.fillMaxSize().padding(padding)) {
+                            val active = playing
+                            if (active != null && current != null) {
+                                com.javrocket.avplay.ui.player.PlayerScreen(
+                                    source = source,
+                                    brief = current,
+                                    initial = active,
+                                    library = graph.library,
+                                    portraitFullscreen = huangguoDirectPlay,
+                                    onBack = {
+                                        playing = null
+                                        if (huangguoDirectPlay) opened = null
+                                    },
+                                    onNeedChallenge = { challengeUrl = it },
+                                )
+                            } else if (current == null) {
+                                if (mainTab == MainTab.Home) {
+                                    SiteBar(
+                                        sources = homeSources,
+                                        selectedId = source.id,
+                                        onSelect = { siteId = it },
+                                    )
+                                }
+                                HomeScreen(
+                                    source = source,
+                                    imageLoader = graph.imageLoader,
+                                    reloadTick = reloadTick,
+                                    library = graph.library,
+                                    onOpen = ::openBrief,
+                                    onNeedChallenge = { challengeUrl = it },
+                                    onOpenSync = { overlay = OVERLAY_SYNC },
+                                    onOpenDiagnostics = { overlay = OVERLAY_DIAG },
+                                )
+                            } else {
+                                DetailScreen(
+                                    source = source,
+                                    brief = current,
+                                    imageLoader = graph.imageLoader,
+                                    library = graph.library,
+                                    reloadTick = reloadTick,
+                                    onBack = { opened = null },
+                                    onNeedChallenge = { challengeUrl = it },
+                                    onPlay = { playing = it },
+                                )
+                            }
                         }
                     }
 
@@ -195,6 +246,53 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
 
 private const val OVERLAY_SYNC = "sync"
 private const val OVERLAY_DIAG = "diag"
+
+private val NavAccent = Color(0xFFD68A94)
+
+private enum class MainTab { Home, HuangGuo }
+
+@Composable
+private fun MainBottomBar(
+    selected: MainTab,
+    onSelect: (MainTab) -> Unit,
+) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = selected == MainTab.Home,
+            onClick = { onSelect(MainTab.Home) },
+            icon = {
+                Text(
+                    "⌂",
+                    fontSize = 22.sp,
+                    color = if (selected == MainTab.Home) NavAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            label = { Text("首页") },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = NavAccent,
+                selectedTextColor = NavAccent,
+                indicatorColor = NavAccent.copy(alpha = 0.12f),
+            ),
+        )
+        NavigationBarItem(
+            selected = selected == MainTab.HuangGuo,
+            onClick = { onSelect(MainTab.HuangGuo) },
+            icon = {
+                Text(
+                    "▣",
+                    fontSize = 20.sp,
+                    color = if (selected == MainTab.HuangGuo) NavAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            label = { Text("黄果短剧") },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = NavAccent,
+                selectedTextColor = NavAccent,
+                indicatorColor = NavAccent.copy(alpha = 0.12f),
+            ),
+        )
+    }
+}
 
 /**
  * 站点切换条。
