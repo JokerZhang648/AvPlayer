@@ -10,7 +10,9 @@ import com.javrocket.avplay.parser.absolutize
 import com.javrocket.avplay.parser.cleanText
 import com.javrocket.avplay.parser.extractGroup
 import com.javrocket.avplay.parser.firstNonBlank
+import com.javrocket.avplay.model.VideoComment
 import com.javrocket.avplay.parser.stripSiteSuffix
+import com.javrocket.avplay.parser.stripXChinaDetailTitle
 
 /**
  * XChina 是纯网页站，没有 API。
@@ -45,12 +47,23 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
             val cover = img?.attr("src")
                 ?.takeIf { it.isNotBlank() }
                 ?.let { absolutize(options.baseUrl, it) }
+            val meta = parseListCardMeta(a)
 
+            val brief = VideoBrief(
+                id = id,
+                title = title,
+                cover = cover,
+                sourceSite = SITE_ID,
+                duration = meta.duration,
+                code = meta.seriesCode,
+                category = meta.category,
+                subtitle = meta.footLine,
+            )
             val existing = out[id]
             if (existing == null) {
-                out[id] = VideoBrief(id = id, title = title, cover = cover, sourceSite = SITE_ID)
-            } else if (existing.title.isBlank() && title.isNotBlank()) {
-                out[id] = existing.copy(title = title, cover = existing.cover ?: cover)
+                out[id] = brief
+            } else {
+                out[id] = existing.mergeListBrief(brief)
             }
         }
 
@@ -79,8 +92,46 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
 
         /** 只匹配 `/video/<hash>`；`/video-series/`、`/video-category/`、`/video-tag/` 都带连字符，天然排除。 */
         val VIDEO_ID = Regex("""/video/([A-Za-z0-9]+)""")
+        private val CARD_DURATION = Regex("""^\d{1,3}:\d{2}$""")
+        private val SERIES_CODE = Regex("""^[A-Z0-9]{2,}-[A-Z0-9]{2,}""", RegexOption.IGNORE_CASE)
+
+        private fun parseListCardMeta(a: com.javrocket.avplay.parser.HtmlNode): ListCardMeta {
+            val pills = a.select("span.cover-pill").map { cleanText(it.text) }.filter { it.isNotBlank() }
+            val duration = pills.firstOrNull { CARD_DURATION.matches(it) }
+            val seriesCode = pills.firstOrNull { SERIES_CODE.matches(it) }
+            val category = pills.firstOrNull { pill ->
+                pill != duration && pill != seriesCode && !SERIES_CODE.matches(pill)
+            }
+            val foot = a.selectFirst("span[class*='text-xs'][class*='items-center']")
+                ?: a.select("span[class*='text-xs']").lastOrNull()
+            val actor = cleanText(foot?.selectFirst("[class*=truncate]")?.text)
+            val date = cleanText(foot?.selectFirst("[class*=tabular-nums]")?.text)
+            val footLine = when {
+                actor.isNotBlank() && date.isNotBlank() -> "$actor · $date"
+                actor.isNotBlank() -> actor
+                date.isNotBlank() -> date
+                else -> cleanText(foot?.text).takeIf { it.isNotBlank() && !it.contains("line-clamp") }
+            }
+            return ListCardMeta(duration, seriesCode, category, footLine)
+        }
+
+        private fun VideoBrief.mergeListBrief(fresh: VideoBrief): VideoBrief = copy(
+            title = title.ifBlank { fresh.title },
+            cover = cover ?: fresh.cover,
+            duration = duration ?: fresh.duration,
+            code = code ?: fresh.code,
+            category = category ?: fresh.category,
+            subtitle = subtitle ?: fresh.subtitle,
+        )
     }
 }
+
+private data class ListCardMeta(
+    val duration: String?,
+    val seriesCode: String?,
+    val category: String?,
+    val footLine: String?,
+)
 
 /** 详情页解析：优先读 OpenGraph（最稳），再退回正文元素。 */
 class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> {
@@ -89,9 +140,9 @@ class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> 
         val doc = Html.parse(html)
 
         val title = firstNonBlank(
-            cleanText(doc.selectFirst("meta[property='og:title']")?.attr("content")),
             cleanText(doc.selectFirst("h1")?.text),
-            stripSiteSuffix(doc.title, "XChina", "西范", "China"),
+            stripXChinaDetailTitle(doc.selectFirst("meta[property='og:title']")?.attr("content").orEmpty()),
+            stripXChinaDetailTitle(doc.title),
             videoId,
         )
         val cover = firstNonBlank(
@@ -107,11 +158,11 @@ class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> 
             cleanText(doc.selectFirst("p.summary")?.text),
         )
 
-        // 新站演员路径是 /actor/<hash>（旧站是 /model/，两者都兼容）
-        val actors = doc.select("a[href*='/actor/'], a[href*='model/']").mapNotNull { a ->
+        // 新站模特页 /model/<hash>；旧站 /actor/<hash>
+        val actors = doc.select("a[href*='/model/'], a[href*='/actor/']").mapNotNull { a ->
             val name = cleanText(a.text)
             if (name.isBlank()) null else ValueLink(name, absolutize(options.baseUrl, a.attr("href")))
-        }.distinctBy { it.value }
+        }.distinctBy { it.link.ifBlank { it.value } }
 
         // 新站标签路径是 /video-tag/<slug>（旧站是 tag/ / category/）
         val tags = doc.select("a[href*='/video-tag/'], a[href*='tag/'], a[href*='category/']").mapNotNull { a ->
@@ -137,5 +188,69 @@ class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> 
             tags = tags,
             related = related,
         )
+    }
+
+    companion object {
+        val MODEL_ID = Regex("""/(?:model|actor)/([A-Za-z0-9]+)""")
+
+        fun modelIdFromLink(link: String): String? = MODEL_ID.find(link)?.groupValues?.getOrNull(1)
+    }
+}
+
+data class XChinaCommentsPage(
+    val comments: List<VideoComment>,
+    val totalCount: Int? = null,
+    val page: Int = 1,
+    val totalPages: Int = 1,
+)
+
+/** 从视频详情页 HTML 解析评论区块（含 `?cpage=N` 分页）。 */
+class XChinaCommentsParser : BaseParser<XChinaCommentsPage> {
+
+    override fun parse(html: String, options: ParseOptions): XChinaCommentsPage {
+        val doc = Html.parse(html)
+        val jump = doc.selectFirst("form[data-comment-jump]")
+        val totalPages = jump?.attr("data-total")?.trim()?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val page = jump?.attr("data-current")?.trim()?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val totalCount = doc.selectFirst("[data-comment-total]")
+            ?.text
+            ?.trim()
+            ?.toIntOrNull()
+        val comments = parseXChinaComments(doc)
+        return XChinaCommentsPage(
+            comments = comments,
+            totalCount = totalCount,
+            page = page,
+            totalPages = totalPages,
+        )
+    }
+
+    companion object {
+        fun parseXChinaComments(doc: com.javrocket.avplay.parser.HtmlDoc): List<VideoComment> {
+            return doc.select("section#comments li[data-comment], li[data-comment]").mapNotNull { li ->
+                val id = li.attr("data-comment").trim()
+                if (id.isBlank()) return@mapNotNull null
+                val body = li.selectFirst(".min-w-0.flex-1") ?: li
+                val author = cleanText(body.selectFirst("span.font-medium")?.text)
+                val time = cleanText(body.selectFirst("time")?.text)
+                val floor = cleanText(
+                    body.selectFirst("span.tabular-nums.text-subtle")?.text
+                        ?: body.selectFirst("span.ml-auto")?.text,
+                )
+                val content = cleanText(body.selectFirst("p")?.text)
+                if (content.isBlank() && author.isBlank()) return@mapNotNull null
+                val likes = body.selectFirst("button[data-vote=like] span")?.text?.trim()?.toIntOrNull() ?: 0
+                val dislikes = body.selectFirst("button[data-vote=dislike] span")?.text?.trim()?.toIntOrNull() ?: 0
+                VideoComment(
+                    id = id,
+                    author = author.ifBlank { "匿名色友" },
+                    time = time,
+                    floor = floor,
+                    content = content,
+                    likes = likes,
+                    dislikes = dislikes,
+                )
+            }
+        }
     }
 }

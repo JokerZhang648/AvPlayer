@@ -4,6 +4,7 @@ import com.javrocket.avplay.model.HomeFeed
 import com.javrocket.avplay.model.Page
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
+import com.javrocket.avplay.model.VideoComment
 import com.javrocket.avplay.model.VideoDetail
 import com.javrocket.avplay.model.VideoSection
 import com.javrocket.avplay.service.ContentSource
@@ -18,7 +19,7 @@ class XChinaSource(
 
     override suspend fun home(): Result<HomeFeed> =
         service.getSeries(page = 1).map { items ->
-            HomeFeed(listOf(VideoSection("最新", items)))
+            HomeFeed(listOf(VideoSection("近期热门", items)))
         }
 
     override suspend fun detail(id: String): Result<VideoDetail> = service.getVideoDetail(id)
@@ -31,6 +32,14 @@ class XChinaSource(
     /** 详情页直链或经聚合器解析嵌入播放器。 */
     override suspend fun playback(id: String, episode: Int): Result<PlaybackInfo> =
         service.getVideoDownload(id)
+
+    suspend fun modelVideos(modelId: String, page: Int = 1): Result<Page<VideoBrief>> =
+        service.getModelVideos(modelId, page).map { items ->
+            Page(items = items, page = page, hasMore = items.size >= PAGE_SIZE)
+        }
+
+    suspend fun allComments(videoId: String): Result<Pair<List<VideoComment>, Int?>> =
+        service.getAllVideoComments(videoId)
 
     companion object {
         private const val PAGE_SIZE = 20

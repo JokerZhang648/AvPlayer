@@ -74,6 +74,7 @@ fun HomeScreen(
     onNeedChallenge: (String) -> Unit,
     onOpenSync: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     homeSources: List<ContentSource> = emptyList(),
     onSelectSource: ((String) -> Unit)? = null,
 ) {
@@ -86,12 +87,14 @@ fun HomeScreen(
             onNeedChallenge = onNeedChallenge,
             onOpenSync = onOpenSync,
             onOpenDiagnostics = onOpenDiagnostics,
+            onOpenHistory = onOpenHistory,
         )
         return
     }
 
     var state by remember { mutableStateOf<HomeUiState>(HomeUiState.Loading) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var homeTab by remember { mutableStateOf(XChinaHomeTab.HOT) }
     val coverHeaders = remember(source.id, source.baseUrl) {
         if (source.id == HuangGuoService.SITE_ID) {
             HuangGuoImageCrypto.imageRequestHeaders(source.baseUrl)
@@ -124,6 +127,7 @@ fun HomeScreen(
                 // 同步与诊断放在顶栏：这两个都是"全局"能力，不属于某个站点，
                 // 挂在站点详情/首页内容里会让人以为是站点功能。
                 actions = {
+                    TextButton(onClick = onOpenHistory) { Text("历史浏览") }
                     TextButton(onClick = onOpenSync) { Text("同步") }
                     TextButton(onClick = onOpenDiagnostics) { Text("诊断") }
                 },
@@ -136,6 +140,12 @@ fun HomeScreen(
                     sources = homeSources,
                     selectedId = source.id,
                     onSelect = onSelectSource,
+                )
+            }
+            if (source.id == SiteIds.XCHINA) {
+                XChinaHomeTabRow(
+                    selected = homeTab,
+                    onSelect = { homeTab = it },
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -181,9 +191,9 @@ fun HomeScreen(
                 }
 
                 is HomeUiState.Ready -> {
-                    val continueList = library.continueWatching(siteId = source.id)
                     val posterGrid = source.id == SiteIds.XCHINA
-                    if (posterGrid) {
+                    if (posterGrid && homeTab == XChinaHomeTab.HOT) {
+                        val gridItems = s.sections.flatMap { it.items }
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
@@ -191,90 +201,24 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            if (continueList.isNotEmpty()) {
-                                item(key = "header-continue", span = { GridItemSpan(2) }) {
-                                    Text(
-                                        text = "继续观看",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(vertical = 6.dp),
-                                    )
-                                }
-                                items(
-                                    items = continueList,
-                                    key = { "cont-${it.siteId}-${it.videoId}" },
-                                ) { entry ->
-                                    VideoPosterGridCard(
-                                        item = VideoBrief(
-                                            id = entry.videoId,
-                                            title = entry.title,
-                                            cover = entry.cover,
-                                            sourceSite = entry.siteId,
-                                        ),
-                                        imageLoader = imageLoader,
-                                        coverHeaders = coverHeaders,
-                                        onClick = {
-                                            onOpen(
-                                                VideoBrief(
-                                                    id = entry.videoId,
-                                                    title = entry.title,
-                                                    cover = entry.cover,
-                                                    sourceSite = entry.siteId,
-                                                ),
-                                            )
-                                        },
-                                    )
-                                }
+                            items(
+                                items = gridItems,
+                                key = { "hot-${it.id}" },
+                            ) { item ->
+                                XChinaWidePosterCard(
+                                    item = item,
+                                    imageLoader = imageLoader,
+                                    coverHeaders = coverHeaders,
+                                    onClick = { onOpen(item) },
+                                )
                             }
-                            s.sections.forEach { section ->
-                                item(key = "header-${section.title}", span = { GridItemSpan(2) }) {
-                                    Text(
-                                        text = section.title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-                                    )
-                                }
-                                items(
-                                    items = section.items,
-                                    key = { "${section.title}-${it.id}" },
-                                ) { item ->
-                                    VideoPosterGridCard(
-                                        item = item,
-                                        imageLoader = imageLoader,
-                                        coverHeaders = coverHeaders,
-                                        onClick = { onOpen(item) },
-                                    )
-                                }
-                            }
+                        }
+                    } else if (posterGrid) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("敬请期待", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
                         LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                            if (continueList.isNotEmpty()) {
-                                item(key = "header-continue") {
-                                    Text(
-                                        text = "继续观看",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    )
-                                }
-                                items(items = continueList, key = { "cont-${it.siteId}-${it.videoId}" }) { entry ->
-                                    ContinueRow(
-                                        entry = entry,
-                                        imageLoader = imageLoader,
-                                        coverHeaders = coverHeaders,
-                                        onClick = {
-                                            onOpen(
-                                                VideoBrief(
-                                                    id = entry.videoId,
-                                                    title = entry.title,
-                                                    cover = entry.cover,
-                                                    sourceSite = entry.siteId,
-                                                ),
-                                            )
-                                        },
-                                    )
-                                }
-                            }
-
                             s.sections.forEach { section ->
                                 item(key = "header-${section.title}") {
                                     Text(
@@ -296,6 +240,38 @@ fun HomeScreen(
                     }
                 }
             }
+            }
+        }
+    }
+}
+
+private enum class XChinaHomeTab(val label: String) {
+    HOT("近期热门"),
+}
+
+@Composable
+private fun XChinaHomeTabRow(
+    selected: XChinaHomeTab,
+    onSelect: (XChinaHomeTab) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        XChinaHomeTab.entries.forEach { tab ->
+            TextButton(onClick = { onSelect(tab) }) {
+                Text(
+                    text = tab.label,
+                    fontWeight = if (tab == selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (tab == selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
             }
         }
     }
@@ -370,12 +346,13 @@ private fun VideoRow(
     }
 }
 
-/** 继续观看行：带进度条和"看到哪"的时间，比普通列表多一条进度信息。 */
+/** 历史/续播行：带进度条和来源站点标签。 */
 @Composable
-private fun ContinueRow(
+internal fun ContinueRow(
     entry: com.javrocket.avplay.store.HistoryEntry,
     imageLoader: ImageLoader,
     coverHeaders: Map<String, String>,
+    siteLabel: String? = null,
     onClick: () -> Unit,
 ) {
     Card(
@@ -391,6 +368,13 @@ private fun ContinueRow(
         ) {
             RemoteThumb(loader = imageLoader, url = entry.cover, headers = coverHeaders)
             Column(Modifier.weight(1f)) {
+                if (!siteLabel.isNullOrBlank()) {
+                    Text(
+                        text = siteLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     text = entry.title.ifBlank { entry.videoId },
                     style = MaterialTheme.typography.bodyLarge,
@@ -399,8 +383,9 @@ private fun ContinueRow(
                 )
                 val posSec = entry.positionMs / 1000
                 val durSec = entry.durationMs / 1000
+                val epHint = if (entry.episodeIndex > 1) "第${entry.episodeIndex}集 · " else ""
                 Text(
-                    text = "看到 %02d:%02d%s".format(
+                    text = epHint + "看到 %02d:%02d%s".format(
                         posSec / 60,
                         posSec % 60,
                         if (durSec > 0) " / %02d:%02d".format(durSec / 60, durSec % 60) else "",

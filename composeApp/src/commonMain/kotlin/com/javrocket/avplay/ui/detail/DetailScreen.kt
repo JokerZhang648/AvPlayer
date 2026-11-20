@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -30,7 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.core.SiteIds
 import com.javrocket.avplay.model.PlaybackInfo
+import com.javrocket.avplay.model.ValueLink
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.model.VideoDetail
 import com.javrocket.avplay.service.ContentSource
@@ -64,6 +67,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onNeedChallenge: (String) -> Unit,
     onPlay: (PlaybackInfo) -> Unit,
+    onOpenActor: ((ValueLink) -> Unit)? = null,
 ) {
     var state by remember { mutableStateOf<DetailUiState>(DetailUiState.Loading) }
     var playback by remember { mutableStateOf<PlaybackUiState>(PlaybackUiState.Idle) }
@@ -90,7 +94,11 @@ fun DetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(brief.title.ifBlank { brief.id }, maxLines = 1) },
+                title = {
+                    val t = (state as? DetailUiState.Ready)?.detail?.brief?.title
+                        ?: brief.title.ifBlank { brief.id }
+                    Text(t, maxLines = 1)
+                },
                 navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
                 actions = {
                     TextButton(onClick = {
@@ -165,7 +173,6 @@ fun DetailScreen(
                         val meta = listOfNotNull(
                             d.brief.code?.takeIf { it.isNotBlank() }?.let { "番号 $it" },
                             d.brief.duration?.takeIf { it.isNotBlank() },
-                            d.brief.sourceSite.takeIf { it.isNotBlank() }?.let { "来源 $it" },
                         ).joinToString(" · ")
                         if (meta.isNotBlank()) {
                             Text(meta, style = MaterialTheme.typography.bodySmall)
@@ -184,9 +191,10 @@ fun DetailScreen(
                         }
 
                         if (d.actors.isNotEmpty()) {
-                            Text(
-                                "演员：" + d.actors.joinToString("、") { it.value },
-                                style = MaterialTheme.typography.bodySmall,
+                            ActorRow(
+                                actors = d.actors,
+                                clickable = source.id == SiteIds.XCHINA && onOpenActor != null,
+                                onOpenActor = onOpenActor,
                             )
                         }
 
@@ -246,14 +254,41 @@ fun DetailScreen(
                                 }
                             }
 
-                            is PlaybackUiState.Ready -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("mime: ${p.info.mimeType}", style = MaterialTheme.typography.bodySmall)
-                                Text("来源页: ${p.info.sourcePageUrl}", style = MaterialTheme.typography.bodySmall)
-                                Text(p.info.url, style = MaterialTheme.typography.bodySmall)
-                            }
+                            is PlaybackUiState.Ready -> Unit
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActorRow(
+    actors: List<ValueLink>,
+    clickable: Boolean,
+    onOpenActor: ((ValueLink) -> Unit)?,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("演员：", style = MaterialTheme.typography.bodySmall)
+        actors.forEachIndexed { index, actor ->
+            if (index > 0) {
+                Text("、", style = MaterialTheme.typography.bodySmall)
+            }
+            if (clickable && actor.link.isNotBlank()) {
+                TextButton(
+                    onClick = { onOpenActor?.invoke(actor) },
+                    modifier = Modifier.widthIn(min = 1.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) {
+                    Text(actor.value, style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                Text(actor.value, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

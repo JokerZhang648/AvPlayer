@@ -5,6 +5,7 @@ import com.javrocket.avplay.core.runServiceOperation
 import com.javrocket.avplay.model.Page
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
+import com.javrocket.avplay.model.VideoComment
 import com.javrocket.avplay.model.VideoDetail
 import com.javrocket.avplay.net.HtmlParsing
 import com.javrocket.avplay.net.bodyTextChecked
@@ -90,6 +91,17 @@ class XChinaService(
             ) { parameter("page", page) }
         }
 
+    /** 模特主页 `/model/<hash>`（2026-11 站点以 hash 为主键）。 */
+    suspend fun getModelVideos(modelId: String, page: Int = 1): Result<List<VideoBrief>> =
+        runServiceOperation("xchina.model", Timeouts.STANDARD) {
+            HtmlParsing.fetch(
+                client = http,
+                url = "$base$PATH_MODEL_PAGE$modelId",
+                parser = XChinaListParser(),
+                options = ParseOptions(baseUrl = base, page = page, sitePrefix = modelId),
+            ) { parameter("page", page) }
+        }
+
     // ---- 详情 ----------------------------------------------------------
 
     suspend fun getVideoDetail(id: String): Result<VideoDetail> =
@@ -100,6 +112,25 @@ class XChinaService(
                 parser = XChinaDetailParser(id),
                 options = ParseOptions(baseUrl = base, sitePrefix = id),
             )
+        }
+
+    /** 拉取视频全部评论页（`?cpage=N`，与站内评论区一致）。 */
+    suspend fun getAllVideoComments(id: String): Result<Pair<List<VideoComment>, Int?>> =
+        runServiceOperation("xchina.comments", Timeouts.LONG) {
+            val pageUrl = "$base$PATH_VIDEO$id"
+            val parser = XChinaCommentsParser()
+            val options = ParseOptions(baseUrl = base)
+            val firstHtml = http.get(pageUrl).bodyTextChecked("xchina.comments.1")
+            val first = parser.parse(firstHtml, options)
+            val merged = LinkedHashMap<String, VideoComment>()
+            first.comments.forEach { merged[it.id] = it }
+            val pages = first.totalPages.coerceIn(1, MAX_COMMENT_PAGES)
+            for (p in 2..pages) {
+                val html = http.get(pageUrl) { parameter("cpage", p) }.bodyTextChecked("xchina.comments.$p")
+                parser.parse(html, options).comments.forEach { merged[it.id] = it }
+            }
+            val list = merged.values.toList()
+            Pair(list, first.totalCount ?: list.size.takeIf { it > 0 })
         }
 
     // ---- 详情页 → 直链 --------------------------------------------------
@@ -209,6 +240,8 @@ class XChinaService(
         private const val PATH_VIDEO = "/video/"
         private const val PATH_SEARCH = "/search"
         private const val PATH_MODEL = "/actor/"
+        private const val PATH_MODEL_PAGE = "/model/"
         private const val PATH_CATEGORY = "/video-category/"
+        private const val MAX_COMMENT_PAGES = 100
     }
 }

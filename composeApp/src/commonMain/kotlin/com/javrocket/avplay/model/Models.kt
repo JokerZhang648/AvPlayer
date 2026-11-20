@@ -17,8 +17,10 @@ data class VideoBrief(
     val code: String? = null,
     val duration: String? = null,
     val rating: Double? = null,
-    /** 列表副标题 / 简介（黄果 `desc`）。其它站点可留空。 */
+    /** 列表副标题 / 简介（黄果 `desc`；XChina 为演员·日期行）。其它站点可留空。 */
     val subtitle: String? = null,
+    /** 列表封面角标分类（XChina `cover-pill` 分类名）。 */
+    val category: String? = null,
     /** 热度（黄果 `hot`）。 */
     val hot: Long? = null,
     val episodeCount: Int? = null,
@@ -45,6 +47,18 @@ data class Episode(
     val url: String = "",
 )
 
+/** 详情页评论（目前主要由 XChina 解析）。 */
+@Serializable
+data class VideoComment(
+    val id: String = "",
+    val author: String = "",
+    val time: String = "",
+    val floor: String = "",
+    val content: String = "",
+    val likes: Int = 0,
+    val dislikes: Int = 0,
+)
+
 @Serializable
 data class VideoDetail(
     val brief: VideoBrief = VideoBrief(),
@@ -53,6 +67,8 @@ data class VideoDetail(
     val tags: List<ValueLink> = emptyList(),
     val episodes: List<Episode> = emptyList(),
     val related: List<VideoBrief> = emptyList(),
+    val comments: List<VideoComment> = emptyList(),
+    val commentTotal: Int? = null,
 )
 
 /**

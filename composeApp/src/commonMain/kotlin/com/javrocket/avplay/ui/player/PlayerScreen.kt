@@ -11,14 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.javrocket.avplay.ui.SystemBackHandler
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +57,8 @@ import com.javrocket.avplay.platform.setLandscapePlaybackFullscreen
 import com.javrocket.avplay.model.Episode
 import com.javrocket.avplay.model.PlaybackInfo
 import com.javrocket.avplay.model.VideoBrief
+import com.javrocket.avplay.model.VideoComment
+import com.javrocket.avplay.service.xchina.XChinaSource
 import com.javrocket.avplay.player.PlatformPlayer
 import com.javrocket.avplay.player.PlayerSnapshot
 import com.javrocket.avplay.player.PlayerStatus
@@ -352,6 +358,28 @@ fun PlayerScreen(
     var showSpeedMenu by remember { mutableStateOf(false) }
     var landscapeFullscreen by remember { mutableStateOf(false) }
     val tapVideo = remember { MutableInteractionSource() }
+    val xchinaSource = source as? XChinaSource
+    var comments by remember { mutableStateOf<List<VideoComment>?>(null) }
+    var commentTotal by remember { mutableStateOf<Int?>(null) }
+    var commentsError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(brief.id, xchinaSource) {
+        val x = xchinaSource ?: return@LaunchedEffect
+        comments = null
+        commentsError = null
+        x.allComments(brief.id).fold(
+            onSuccess = { (list, total) ->
+                comments = list
+                commentTotal = total
+            },
+            onFailure = { err ->
+                comments = emptyList()
+                commentsError = err.message
+                val cf = err as? AppError.CloudflareChallenge
+                if (cf != null) onNeedChallenge(cf.url)
+            },
+        )
+    }
 
     DisposableEffect(landscapeFullscreen) {
         setLandscapePlaybackFullscreen(landscapeFullscreen)
@@ -430,21 +458,24 @@ fun PlayerScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            val videoRatio = snapshot.videoAspectRatio()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .aspectRatio(videoRatio)
                     .background(Color.Black)
                     .clickable(interactionSource = tapVideo, indication = null) {
                         if (snapshot.status == PlayerStatus.PLAYING) player.pause() else player.play()
                     },
+                contentAlignment = Alignment.Center,
             ) {
                 VideoSurface(
                     player = player,
                     playbackUrl = current.url,
                     snapshot = snapshot,
                     modifier = Modifier.fillMaxSize(),
-                    fitWithinBounds = false,
+                    fitWithinBounds = true,
+                    fillPortraitScreen = false,
                 )
                 if (snapshot.status == PlayerStatus.BUFFERING) {
                     CircularProgressIndicator(
@@ -523,6 +554,45 @@ fun PlayerScreen(
                     ) { Text("重新加载") }
                 }
             }
+
+            if (xchinaSource != null) {
+                when (val list = comments) {
+                    null -> LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+
+                    else -> {
+                        val total = commentTotal ?: list.size
+                        if (list.isNotEmpty() || total > 0) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item(key = "comments-header") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("评论 $total", style = MaterialTheme.typography.titleMedium)
+                                        commentsError?.let {
+                                            Text(
+                                                it,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                    }
+                                }
+                                items(list, key = { it.id }) { comment ->
+                                    VideoCommentCard(comment)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -534,6 +604,7 @@ private fun VideoSurface(
     snapshot: PlayerSnapshot,
     modifier: Modifier = Modifier,
     fitWithinBounds: Boolean,
+    fillPortraitScreen: Boolean = false,
 ) {
     val ratio = snapshot.videoAspectRatio()
     BoxWithConstraints(modifier) {
@@ -557,7 +628,7 @@ private fun VideoSurface(
             PlayerSurface(
                 player = player,
                 modifier = surfaceModifier,
-                fillPortraitScreen = true,
+                fillPortraitScreen = fillPortraitScreen,
                 fitWithinBounds = fitWithinBounds,
             )
         }
@@ -594,6 +665,7 @@ private fun LandscapeFullscreenLayout(
             snapshot = snapshot,
             modifier = Modifier.fillMaxSize(),
             fitWithinBounds = true,
+            fillPortraitScreen = false,
         )
         if (snapshot.status == PlayerStatus.BUFFERING) {
             CircularProgressIndicator(

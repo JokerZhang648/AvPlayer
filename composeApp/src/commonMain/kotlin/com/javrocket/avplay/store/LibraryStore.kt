@@ -108,6 +108,12 @@ class LibraryStore(private val kv: KeyValueStore = com.javrocket.avplay.core.cre
             .filter { it.durationMs <= 0 || it.progressRatio < 0.95 }
             .take(limit)
 
+    /** 历史浏览：全站观看记录，按最近更新时间倒序（含黄果、XChina 等）。 */
+    fun recentBrowseHistory(limit: Int = 100): List<HistoryEntry> =
+        _history.value
+            .sortedByDescending { it.updatedAt }
+            .take(limit)
+
     fun removeHistory(siteId: String, videoId: String) {
         val next = _history.value.filterNot { it.siteId == siteId && it.videoId == videoId }
         _history.value = next

@@ -1,6 +1,7 @@
 package com.javrocket.avplay
 
 import com.javrocket.avplay.parser.ParseOptions
+import com.javrocket.avplay.service.xchina.XChinaCommentsParser
 import com.javrocket.avplay.service.xchina.XChinaDetailParser
 import com.javrocket.avplay.service.xchina.XChinaListParser
 import kotlin.test.Test
@@ -29,7 +30,10 @@ class XChinaParserTest {
                 <span class="cover-pill min-w-0 tabular-nums">17:30</span>
               </span>
               <span class="mt-2 text-sm leading-snug group-hover:text-brand-600 line-clamp-2 h-[2.75em]">卡片标题一</span>
-              <span class="mt-1 flex h-4 items-center gap-2 text-xs">模特甲</span>
+              <span class="mt-1 flex h-4 items-center gap-2 text-xs text-subtle">
+                <span class="truncate">模特甲</span>
+                <span class="ml-auto shrink-0 tabular-nums">2026-10-30</span>
+              </span>
             </a>
             <a href="/video-series/107" class="group block">系列页，不是视频</a>
             <a href="/video-category/jav">分类页，不是视频</a>
@@ -44,15 +48,36 @@ class XChinaParserTest {
 
     private val detailHtml = """
         <html><head>
-          <title>标题C - XChina</title>
-          <meta property="og:title" content="标题C">
+          <title>标题C - 分类 - 小黄书 xChina</title>
+          <meta property="og:title" content="标题C - 分类 - 小黄书 xChina">
           <meta property="og:image" content="/cover/c.jpg">
           <meta property="og:description" content="这是简介">
         </head><body>
           <h1>标题C</h1>
-          <a href="/actor/6441b582c90d4">女优甲</a>
+          <a href="/model/6441b582c90d4">女优甲</a>
           <a href="/video-tag/tag-one">标签一</a>
           <a href="/video/99999abc">相关一</a>
+        </body></html>
+    """.trimIndent()
+
+    private val commentsHtml = """
+        <html><body>
+          <section id="comments">
+            <span data-comment-total>2</span>
+            <form data-comment-jump data-current="1" data-total="3"></form>
+            <ul>
+              <li data-comment="1" class="flex gap-3 p-4">
+                <div class="min-w-0 flex-1">
+                  <span class="font-medium">澳大利亚色友</span>
+                  <time>2026-11-04 02:59</time>
+                  <span class="tabular-nums text-subtle">85 楼</span>
+                  <p>评论正文</p>
+                  <button data-vote="like"><span>2</span></button>
+                  <button data-vote="dislike"><span>1</span></button>
+                </div>
+              </li>
+            </ul>
+          </section>
         </body></html>
     """.trimIndent()
 
@@ -72,6 +97,9 @@ class XChinaParserTest {
     fun title_ignores_overlay_pills() {
         val first = parseList().first { it.id == "6ae4aea8d28b8" }
         assertEquals("卡片标题一", first.title)
+        assertEquals("模特私拍", first.category)
+        assertEquals("17:30", first.duration)
+        assertEquals("模特甲 · 2026-10-30", first.subtitle)
         assertTrue(!first.title.contains("模特私拍"), "浮层分类不能进标题，实际: ${first.title}")
         assertTrue(!first.title.contains("17:30"), "时长不能进标题，实际: ${first.title}")
     }
@@ -91,9 +119,22 @@ class XChinaParserTest {
         assertEquals("标题C", detail.brief.title)
         assertEquals("https://xchina.co/cover/c.jpg", detail.brief.cover)
         assertEquals("这是简介", detail.description)
-        assertEquals(listOf("女优甲"), detail.actors.map { it.value }, "新站演员路径是 /actor/")
+        assertEquals(listOf("女优甲"), detail.actors.map { it.value }, "新站模特路径是 /model/")
+        assertEquals("https://xchina.co/model/6441b582c90d4", detail.actors.first().link)
         assertEquals(listOf("标签一"), detail.tags.map { it.value }, "新站标签路径是 /video-tag/")
         assertTrue(detail.related.any { it.id == "99999abc" })
         assertTrue(detail.related.none { it.id == "6ae4aea8d28b8" }, "相关推荐不应包含自己")
+    }
+
+    @Test
+    fun parses_comments_with_page_count() {
+        val page = XChinaCommentsParser()
+            .parse(commentsHtml, ParseOptions(baseUrl = "https://xchina.co"))
+        assertEquals(2, page.totalCount)
+        assertEquals(3, page.totalPages)
+        assertEquals(1, page.page)
+        assertEquals(1, page.comments.size)
+        assertEquals("评论正文", page.comments.first().content)
+        assertEquals(2, page.comments.first().likes)
     }
 }

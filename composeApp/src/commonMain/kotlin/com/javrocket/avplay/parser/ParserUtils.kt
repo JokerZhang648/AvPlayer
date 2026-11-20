@@ -64,3 +64,18 @@ fun stripSiteSuffix(title: String, vararg suffixes: String): String {
     suffixes.forEach { s -> t = t.replace(s, "", ignoreCase = true) }
     return t.trim(' ', '-', '|', '—')
 }
+
+/**
+ * XChina 详情：`og:title` / `<title>` 常为「片名 - 分类 - 小黄书 xChina」，
+ * 页面正文 `h1` 才是纯片名；无 h1 时取第一个「 - 」段之前的文字。
+ */
+fun stripXChinaDetailTitle(raw: String): String {
+    val t = cleanText(raw)
+    if (t.isBlank()) return t
+    val siteTail = listOf("xchina", "小黄书", "西范", "China").any { t.contains(it, ignoreCase = true) }
+    val segments = t.split(Regex("""\s*[-–—|]\s*"""))
+    if (segments.size >= 2 && (segments.size >= 3 || siteTail)) {
+        return segments.first().trim()
+    }
+    return stripSiteSuffix(t, "XChina", "xChina", "小黄书", "西范", "China")
+}

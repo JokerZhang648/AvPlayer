@@ -61,6 +61,7 @@ fun HuangGuoHomeScreen(
     onNeedChallenge: (String) -> Unit,
     onOpenSync: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenHistory: () -> Unit = {},
 ) {
   var selectedTab by remember { mutableStateOf(HuangGuoCategory.AI_DUANJU) }
   var items by remember { mutableStateOf<List<VideoBrief>>(emptyList()) }
@@ -120,6 +121,7 @@ fun HuangGuoHomeScreen(
       TopAppBar(
         title = { Text("AvPlay") },
         actions = {
+          TextButton(onClick = onOpenHistory) { Text("历史浏览") }
           TextButton(onClick = onOpenSync) { Text("同步") }
           TextButton(onClick = onOpenDiagnostics) { Text("诊断") }
         },
