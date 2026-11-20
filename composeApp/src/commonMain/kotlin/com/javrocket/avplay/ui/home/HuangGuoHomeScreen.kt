@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,69 +77,35 @@ fun HuangGuoHomeScreen(
   var retryKey by remember { mutableIntStateOf(0) }
 
   val coverHeaders = remember(source.baseUrl) { HuangGuoImageCrypto.imageRequestHeaders(source.baseUrl) }
-  val gridState = rememberLazyGridState()
 
   LaunchedEffect(selectedTab, reloadTick, retryKey) {
     loadingMore = false
-    gridState.scrollToItem(0)
     loading = true
     error = null
     page = 1
     hasMore = !selectedTab.isFeaturedTab
     items = emptyList()
-    if (selectedTab.isFeaturedTab) {
-      source.service.getFeaturedList().fold(
-        onSuccess = { list ->
-          items = list
-          hasMore = false
-        },
-        onFailure = { error = it },
-      )
-    } else {
-      source.service.getCategoryVideos(selectedTab.slug, page = 1).fold(
-        onSuccess = { p ->
-          items = p.items
-          hasMore = p.hasMore
-        },
-        onFailure = { error = it },
-      )
-    }
-    loading = false
-  }
-
-  // 不能用 LaunchedEffect(shouldLoadMore)：loadingMore=true 会让 shouldLoadMore 变 false，
-  // 协程被 Cancel，loadingMore 永远回不来的死锁 —— 表现就是底部分页一直转圈、滑不动。
-  LaunchedEffect(gridState, selectedTab.slug) {
-    snapshotFlow {
-      val info = gridState.layoutInfo
-      val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-      Triple(last, items.size, gridState.canScrollForward)
-    }
-      .distinctUntilChanged()
-      .collect { (lastVisible, dataCount, canScrollForward) ->
-        if (selectedTab.isFeaturedTab || loading || loadingMore || !hasMore || dataCount == 0) return@collect
-        val nearEnd = lastVisible >= dataCount - 3
-        val needFillViewport = !canScrollForward
-        if (!nearEnd && !needFillViewport) return@collect
-
-        loadingMore = true
-        val next = page + 1
-        source.service.getCategoryVideos(selectedTab.slug, page = next).fold(
-          onSuccess = { p ->
-            if (p.items.isNotEmpty()) {
-              items = items + p.items
-              page = next
-              hasMore = p.hasMore && p.items.isNotEmpty()
-            } else {
-              hasMore = false
-            }
-          },
-          onFailure = {
+    try {
+      if (selectedTab.isFeaturedTab) {
+        source.service.getFeaturedList().fold(
+          onSuccess = { list ->
+            items = list
             hasMore = false
           },
+          onFailure = { error = it },
         )
-        loadingMore = false
+      } else {
+        source.service.getCategoryVideos(selectedTab.slug, page = 1).fold(
+          onSuccess = { p ->
+            items = p.items
+            hasMore = p.hasMore
+          },
+          onFailure = { error = it },
+        )
       }
+    } finally {
+      loading = false
+    }
   }
 
   Scaffold(
@@ -176,26 +143,62 @@ fun HuangGuoHomeScreen(
         }
 
         else -> {
-          LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            state = gridState,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxSize(),
-          ) {
-            items(items, key = { "${selectedTab.slug}-${it.id}" }) { item ->
-              HuangGuoGridCard(
-                item = item,
-                imageLoader = imageLoader,
-                coverHeaders = coverHeaders,
-                onClick = { onOpen(item) },
-              )
+          // 每个分类独立 gridState，切换 Tab 自然从顶部开始，且避免对未挂载列表 scrollToItem 卡死
+          key(selectedTab.slug) {
+            val gridState = rememberLazyGridState()
+            LaunchedEffect(gridState) {
+              snapshotFlow {
+                val info = gridState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                Triple(last, items.size, gridState.canScrollForward)
+              }
+                .distinctUntilChanged()
+                .collect { (lastVisible, dataCount, canScrollForward) ->
+                  if (selectedTab.isFeaturedTab || loadingMore || !hasMore || dataCount == 0) return@collect
+                  val nearEnd = lastVisible >= dataCount - 3
+                  val needFillViewport = !canScrollForward
+                  if (!nearEnd && !needFillViewport) return@collect
+
+                  loadingMore = true
+                  val next = page + 1
+                  source.service.getCategoryVideos(selectedTab.slug, page = next).fold(
+                    onSuccess = { p ->
+                      if (p.items.isNotEmpty()) {
+                        items = items + p.items
+                        page = next
+                        hasMore = p.hasMore && p.items.isNotEmpty()
+                      } else {
+                        hasMore = false
+                      }
+                    },
+                    onFailure = {
+                      hasMore = false
+                    },
+                  )
+                  loadingMore = false
+                }
             }
-            if (loadingMore) {
-              item(span = { GridItemSpan(2) }) {
-                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                  CircularProgressIndicator()
+            LazyVerticalGrid(
+              columns = GridCells.Fixed(2),
+              state = gridState,
+              contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
+              modifier = Modifier.fillMaxSize(),
+            ) {
+              items(items, key = { "${selectedTab.slug}-${it.id}" }) { item ->
+                HuangGuoGridCard(
+                  item = item,
+                  imageLoader = imageLoader,
+                  coverHeaders = coverHeaders,
+                  onClick = { onOpen(item) },
+                )
+              }
+              if (loadingMore) {
+                item(span = { GridItemSpan(2) }) {
+                  Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                  }
                 }
               }
             }
