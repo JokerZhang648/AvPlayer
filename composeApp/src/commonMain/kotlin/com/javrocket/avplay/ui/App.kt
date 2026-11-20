@@ -7,14 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -257,12 +258,13 @@ private val NavAccent = Color(0xFFD68A94)
 
 private enum class MainTab { Home, HuangGuo }
 
-private val BottomBarTabsHeight = 38.dp
+/** 图标 + 文案一行，不含系统手势条区域 */
+private val BottomBarTabsHeight = 50.dp
 
 @Composable
 private fun rememberMainBottomBarHeight(): Dp {
     val systemNav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    return BottomBarTabsHeight + systemNav
+    return BottomBarTabsHeight + systemNav + 1.dp
 }
 
 @Composable
@@ -280,7 +282,6 @@ private fun MainBottomBar(
         Row(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .height(BottomBarTabsHeight)
                 .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -299,6 +300,7 @@ private fun MainBottomBar(
                 onClick = { onSelect(MainTab.HuangGuo) },
             )
         }
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }
 
@@ -322,7 +324,7 @@ private fun RowScope.CompactNavItem(
             modifier = Modifier
                 .clip(CircleShape)
                 .background(if (selected) NavAccent.copy(alpha = 0.14f) else Color.Transparent)
-                .padding(horizontal = 12.dp, vertical = 2.dp),
+                .padding(horizontal = 10.dp, vertical = 1.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -333,7 +335,9 @@ private fun RowScope.CompactNavItem(
         }
         Text(
             text = label,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            maxLines = 1,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) NavAccent else inactive,
         )
