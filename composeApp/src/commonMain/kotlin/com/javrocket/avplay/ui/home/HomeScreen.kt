@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
 import com.javrocket.avplay.core.SiteIds
+import com.javrocket.avplay.model.ValueLink
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.model.VideoSection
 import com.javrocket.avplay.service.ContentSource
@@ -78,6 +79,7 @@ fun HomeScreen(
     onOpenHistory: () -> Unit = {},
     homeSources: List<ContentSource> = emptyList(),
     onSelectSource: ((String) -> Unit)? = null,
+    onOpenActor: ((ValueLink) -> Unit)? = null,
 ) {
     if (source is HuangGuoSource) {
         HuangGuoHomeScreen(
@@ -107,6 +109,7 @@ fun HomeScreen(
             onBack = { showSearch = false },
             onOpen = onOpen,
             onNeedChallenge = onNeedChallenge,
+            onOpenActor = onOpenActor,
         )
         return
     }
@@ -228,6 +231,7 @@ fun HomeScreen(
                                     imageLoader = imageLoader,
                                     coverHeaders = coverHeaders,
                                     onClick = { onOpen(item) },
+                                    onOpenActor = null,
                                 )
                             }
                         }

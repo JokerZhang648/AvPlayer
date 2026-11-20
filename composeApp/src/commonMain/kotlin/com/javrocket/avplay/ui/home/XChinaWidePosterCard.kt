@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.javrocket.avplay.model.ValueLink
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.ui.media.ImageLoader
 import com.javrocket.avplay.ui.media.RemoteImage
@@ -30,17 +33,15 @@ fun XChinaWidePosterCard(
     imageLoader: ImageLoader,
     coverHeaders: Map<String, String>,
     onClick: () -> Unit,
+    onOpenActor: ((ValueLink) -> Unit)? = null,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp)),
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onClick),
         ) {
             RemoteImage(
                 loader = imageLoader,
@@ -57,24 +58,46 @@ fun XChinaWidePosterCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             lineHeight = 18.sp,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .clickable(onClick = onClick),
         )
 
-        item.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+        val actor = item.actorLink
+        val sub = item.subtitle?.takeIf { it.isNotBlank() }
+        val canOpenActor = actor != null && actor.link.isNotBlank() && onOpenActor != null
+        if (canOpenActor || sub != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = sub,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
+                if (canOpenActor) {
+                    TextButton(
+                        onClick = { onOpenActor?.invoke(actor) },
+                        modifier = Modifier.widthIn(min = 1.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        Text(
+                            actor.value,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (sub != null) {
+                    val prefix = if (canOpenActor) " · " else ""
+                    Text(
+                        text = prefix + sub,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (canOpenActor) Modifier.weight(1f, fill = false) else Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

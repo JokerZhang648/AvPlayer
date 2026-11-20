@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.model.ValueLink
 import com.javrocket.avplay.model.VideoBrief
 import com.javrocket.avplay.service.xchina.XChinaSource
 import com.javrocket.avplay.ui.media.ImageLoader
@@ -48,6 +49,7 @@ fun XChinaSearchScreen(
     onBack: () -> Unit,
     onOpen: (VideoBrief) -> Unit,
     onNeedChallenge: (String) -> Unit,
+    onOpenActor: ((ValueLink) -> Unit)? = null,
 ) {
     var query by remember { mutableStateOf("") }
     var submittedQuery by remember { mutableStateOf<String?>(null) }
@@ -160,6 +162,7 @@ fun XChinaSearchScreen(
                             imageLoader = imageLoader,
                             coverHeaders = emptyMap(),
                             onClick = { onOpen(item) },
+                            onOpenActor = onOpenActor,
                         )
                     }
                 }

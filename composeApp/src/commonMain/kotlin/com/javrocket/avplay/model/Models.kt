@@ -21,6 +21,8 @@ data class VideoBrief(
     val subtitle: String? = null,
     /** 列表封面角标分类（XChina `cover-pill` 分类名）。 */
     val category: String? = null,
+    /** 列表卡演员链（XChina `/model/`、`/actor/`）。 */
+    val actorLink: ValueLink? = null,
     /** 热度（黄果 `hot`）。 */
     val hot: Long? = null,
     val episodeCount: Int? = null,

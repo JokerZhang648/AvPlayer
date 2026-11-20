@@ -91,16 +91,30 @@ class XChinaService(
             ) { parameter("page", page) }
         }
 
-    /** 模特主页 `/model/<hash>`（2026-11 站点以 hash 为主键）。 */
-    suspend fun getModelVideos(modelId: String, page: Int = 1): Result<List<VideoBrief>> =
-        runServiceOperation("xchina.model", Timeouts.STANDARD) {
+    /** 演员/模特主页：`/model/<hash>` 与 `/actor/<hash>` 并存，需按详情链区分。 */
+    suspend fun getPersonVideos(
+        personId: String,
+        page: Int = 1,
+        route: XChinaPersonRoute = XChinaPersonRoute.Model,
+    ): Result<List<VideoBrief>> =
+        runServiceOperation(
+            if (route == XChinaPersonRoute.Actor) "xchina.actor" else "xchina.model",
+            Timeouts.STANDARD,
+        ) {
+            val path = when (route) {
+                XChinaPersonRoute.Model -> PATH_MODEL_PAGE
+                XChinaPersonRoute.Actor -> PATH_MODEL
+            }
             HtmlParsing.fetch(
                 client = http,
-                url = "$base$PATH_MODEL_PAGE$modelId",
+                url = "$base$path$personId",
                 parser = XChinaListParser(),
-                options = ParseOptions(baseUrl = base, page = page, sitePrefix = modelId),
+                options = ParseOptions(baseUrl = base, page = page, sitePrefix = personId),
             ) { parameter("page", page) }
         }
+
+    suspend fun getModelVideos(modelId: String, page: Int = 1): Result<List<VideoBrief>> =
+        getPersonVideos(modelId, page, XChinaPersonRoute.Model)
 
     // ---- 详情 ----------------------------------------------------------
 

@@ -13,6 +13,13 @@ import com.javrocket.avplay.parser.firstNonBlank
 import com.javrocket.avplay.model.VideoComment
 import com.javrocket.avplay.parser.stripSiteSuffix
 import com.javrocket.avplay.parser.stripXChinaDetailTitle
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * XChina 是纯网页站，没有 API。
@@ -47,8 +54,20 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
             val cover = img?.attr("src")
                 ?.takeIf { it.isNotBlank() }
                 ?.let { absolutize(options.baseUrl, it) }
-            val meta = parseListCardMeta(a)
+            val meta = parseListCardMeta(a, options.baseUrl)
 
+            val actorLink = meta.actorLink
+                ?: actorLinkFromHtmlSegment(html, id, meta.actorLabel, options.baseUrl)
+            val dateLabel = meta.dateLabel.ifBlank { dateLabelFromHtmlSegment(html, id) }
+            val subtitle = if (actorLink != null) {
+                when {
+                    dateLabel.isNotBlank() -> dateLabel
+                    meta.footLine?.contains(" · ") == true -> meta.footLine.substringAfter(" · ").trim()
+                    else -> meta.footLine
+                }
+            } else {
+                meta.footLine
+            }
             val brief = VideoBrief(
                 id = id,
                 title = title,
@@ -57,7 +76,8 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
                 duration = meta.duration,
                 code = meta.seriesCode,
                 category = meta.category,
-                subtitle = meta.footLine,
+                subtitle = subtitle,
+                actorLink = actorLink,
             )
             val existing = out[id]
             if (existing == null) {
@@ -93,9 +113,10 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
         /** 只匹配 `/video/<hash>`；`/video-series/`、`/video-category/`、`/video-tag/` 都带连字符，天然排除。 */
         val VIDEO_ID = Regex("""/video/([A-Za-z0-9]+)""")
         private val CARD_DURATION = Regex("""^\d{1,3}:\d{2}$""")
+        private val CARD_DATE = Regex("""^\d{4}-\d{2}-\d{2}$""")
         private val SERIES_CODE = Regex("""^[A-Z0-9]{2,}-[A-Z0-9]{2,}""", RegexOption.IGNORE_CASE)
 
-        private fun parseListCardMeta(a: com.javrocket.avplay.parser.HtmlNode): ListCardMeta {
+        private fun parseListCardMeta(a: com.javrocket.avplay.parser.HtmlNode, baseUrl: String): ListCardMeta {
             val pills = a.select("span.cover-pill").map { cleanText(it.text) }.filter { it.isNotBlank() }
             val duration = pills.firstOrNull { CARD_DURATION.matches(it) }
             val seriesCode = pills.firstOrNull { SERIES_CODE.matches(it) }
@@ -104,15 +125,81 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
             }
             val foot = a.selectFirst("span[class*='text-xs'][class*='items-center']")
                 ?: a.select("span[class*='text-xs']").lastOrNull()
-            val actor = cleanText(foot?.selectFirst("[class*=truncate]")?.text)
-            val date = cleanText(foot?.selectFirst("[class*=tabular-nums]")?.text)
+            val actor = cleanText(
+                foot?.selectFirst("a[href*='/model/'], a[href*='/actor/']")?.text
+                    ?: foot?.selectFirst("[class*=truncate]")?.text,
+            )
+            val date = cleanText(
+                foot?.selectFirst("[class*=tabular-nums]")?.text
+                    ?: a.select("span[class*=tabular-nums]").map { cleanText(it.text) }
+                        .firstOrNull { CARD_DATE.matches(it) },
+            )
+            val actorLink = modelAnchorInCard(a, baseUrl, actor)
             val footLine = when {
+                actorLink != null && date.isNotBlank() -> date
+                actorLink != null -> null
                 actor.isNotBlank() && date.isNotBlank() -> "$actor · $date"
                 actor.isNotBlank() -> actor
                 date.isNotBlank() -> date
                 else -> cleanText(foot?.text).takeIf { it.isNotBlank() && !it.contains("line-clamp") }
             }
-            return ListCardMeta(duration, seriesCode, category, footLine)
+            return ListCardMeta(duration, seriesCode, category, footLine, actorLink, actor, date)
+        }
+
+        private fun videoCardHtmlSegment(html: String, videoId: String): String? = Regex(
+            """/video/$videoId\b[\s\S]*?(?=/video/[A-Za-z0-9]+\b|$)""",
+            RegexOption.IGNORE_CASE,
+        ).find(html)?.value
+
+        private fun dateLabelFromHtmlSegment(html: String, videoId: String): String {
+            val segment = videoCardHtmlSegment(html, videoId) ?: return ""
+            val fromTabular = Regex(
+                """class=["'][^"']*tabular-nums[^"']*["'][^>]*>([^<]+)<""",
+                RegexOption.IGNORE_CASE,
+            ).find(segment)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            if (CARD_DATE.matches(fromTabular)) return fromTabular
+            return CARD_DATE.find(segment)?.value.orEmpty()
+        }
+
+        private fun actorLinkFromHtmlSegment(
+            html: String,
+            videoId: String,
+            actorName: String,
+            baseUrl: String,
+        ): ValueLink? {
+            val segment = videoCardHtmlSegment(html, videoId) ?: return null
+            val href = Regex(
+                """href=["']([^"']*/(?:model|actor)/[A-Za-z0-9]+)["']""",
+                RegexOption.IGNORE_CASE,
+            ).findAll(segment).map { it.groupValues[1] }.firstOrNull() ?: return null
+            val nameFromTag = Regex(
+                """class=["'][^"']*truncate[^"']*["'][^>]*>([^<]+)<""",
+                RegexOption.IGNORE_CASE,
+            ).find(segment)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            val name = firstNonBlank(actorName, nameFromTag, href.substringAfterLast('/'))
+            return ValueLink(name, absolutize(baseUrl, href))
+        }
+
+        private fun modelAnchorInCard(
+            card: com.javrocket.avplay.parser.HtmlNode,
+            baseUrl: String,
+            fallbackName: String,
+        ): ValueLink? {
+            card.select("a[href*='/model/'], a[href*='/actor/']").forEach { inner ->
+                val href = inner.attr("href").trim()
+                if (href.isBlank() || href.contains("/video/")) return@forEach
+                if (!XChinaDetailParser.MODEL_ID.containsMatchIn(href)) return@forEach
+                val name = cleanText(
+                    inner.selectFirst("[class*=truncate]")?.text ?: inner.text,
+                )
+                if (name.isBlank()) return@forEach
+                return ValueLink(name, absolutize(baseUrl, href))
+            }
+            val id = XChinaDetailParser.MODEL_ID.find(card.html)?.groupValues?.getOrNull(1)
+                ?: return null
+            val name = fallbackName.takeIf { it.isNotBlank() } ?: return null
+            val path = if (card.html.contains("/model/")) "/model/$id" else "/actor/$id"
+            return ValueLink(name, absolutize(baseUrl, path))
         }
 
         private fun VideoBrief.mergeListBrief(fresh: VideoBrief): VideoBrief = copy(
@@ -122,6 +209,7 @@ class XChinaListParser : BaseParser<List<VideoBrief>> {
             code = code ?: fresh.code,
             category = category ?: fresh.category,
             subtitle = subtitle ?: fresh.subtitle,
+            actorLink = actorLink ?: fresh.actorLink,
         )
     }
 }
@@ -131,6 +219,9 @@ private data class ListCardMeta(
     val seriesCode: String?,
     val category: String?,
     val footLine: String?,
+    val actorLink: ValueLink?,
+    val actorLabel: String,
+    val dateLabel: String,
 )
 
 /** 详情页解析：优先读 OpenGraph（最稳），再退回正文元素。 */
@@ -158,11 +249,15 @@ class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> 
             cleanText(doc.selectFirst("p.summary")?.text),
         )
 
-        // 新站模特页 /model/<hash>；旧站 /actor/<hash>
-        val actors = doc.select("a[href*='/model/'], a[href*='/actor/']").mapNotNull { a ->
+        // 新站模特页 /model/<hash>；旧站 /actor/<hash>；再兜底 JSON-LD VideoObject.actor
+        val fromAnchors = doc.select("a[href*='/model/'], a[href*='/actor/']").mapNotNull { a ->
+            val href = a.attr("href")
+            if (href.contains("/video/")) return@mapNotNull null
             val name = cleanText(a.text)
-            if (name.isBlank()) null else ValueLink(name, absolutize(options.baseUrl, a.attr("href")))
-        }.distinctBy { it.link.ifBlank { it.value } }
+            if (name.isBlank()) null else ValueLink(name, absolutize(options.baseUrl, href))
+        }
+        val fromLd = parseLdJsonActors(html, options.baseUrl)
+        val actors = (fromAnchors + fromLd).distinctBy { it.link.ifBlank { it.value } }
 
         // 新站标签路径是 /video-tag/<slug>（旧站是 tag/ / category/）
         val tags = doc.select("a[href*='/video-tag/'], a[href*='tag/'], a[href*='category/']").mapNotNull { a ->
@@ -194,7 +289,68 @@ class XChinaDetailParser(private val videoId: String) : BaseParser<VideoDetail> 
         val MODEL_ID = Regex("""/(?:model|actor)/([A-Za-z0-9]+)""")
 
         fun modelIdFromLink(link: String): String? = MODEL_ID.find(link)?.groupValues?.getOrNull(1)
+
+        /** 演员主页可能是 `/model/<hash>` 或 `/actor/<hash>`，跟链接走。 */
+        fun personRouteFromLink(link: String): XChinaPersonRoute = when {
+            link.contains("/actor/", ignoreCase = true) -> XChinaPersonRoute.Actor
+            else -> XChinaPersonRoute.Model
+        }
+
+        private val ldJson = Json { ignoreUnknownKeys = true }
+
+        private val LD_JSON_BLOCK =
+            Regex("""<script[^>]*type=["']application/ld\+json["'][^>]*>(.*?)</script>""", RegexOption.IGNORE_CASE)
+
+        fun parseLdJsonActors(html: String, baseUrl: String): List<ValueLink> {
+            val out = mutableListOf<ValueLink>()
+            LD_JSON_BLOCK.findAll(html).forEach { match ->
+                val raw = match.groupValues[1].trim()
+                if (raw.isBlank()) return@forEach
+                val root = runCatching { ldJson.parseToJsonElement(raw) }.getOrNull() ?: return@forEach
+                collectLdActors(root, baseUrl, out)
+            }
+            return out.distinctBy { it.link.ifBlank { it.value } }
+        }
+
+        private fun collectLdActors(el: kotlinx.serialization.json.JsonElement, baseUrl: String, out: MutableList<ValueLink>) {
+            when (el) {
+                is JsonObject -> {
+                    val type = el["@type"]?.jsonPrimitive?.content.orEmpty()
+                    if (type.equals("VideoObject", ignoreCase = true)) {
+                        el["actor"]?.let { appendLdPeople(it, baseUrl, out) }
+                    }
+                    el.forEach { (_, v) -> collectLdActors(v, baseUrl, out) }
+                }
+                is JsonArray -> el.forEach { collectLdActors(it, baseUrl, out) }
+                else -> Unit
+            }
+        }
+
+        private fun appendLdPeople(el: kotlinx.serialization.json.JsonElement, baseUrl: String, out: MutableList<ValueLink>) {
+            when (el) {
+                is JsonArray -> el.forEach { appendLdPeople(it, baseUrl, out) }
+                is JsonObject -> {
+                    val type = el["@type"]?.jsonPrimitive?.content.orEmpty()
+                    if (type.isNotBlank() && !type.equals("Person", ignoreCase = true)) return
+                    val name = el["name"]?.jsonPrimitive?.content?.trim().orEmpty()
+                    val url = el["url"]?.jsonPrimitive?.content?.trim().orEmpty()
+                    if (name.isBlank() && url.isBlank()) return
+                    val link = if (url.isNotBlank()) absolutize(baseUrl, url) else ""
+                    if (link.isNotBlank() && !MODEL_ID.containsMatchIn(link)) return
+                    out += ValueLink(
+                        value = name.ifBlank { link.substringAfterLast('/') },
+                        link = link,
+                    )
+                }
+                else -> Unit
+            }
+        }
     }
+}
+
+enum class XChinaPersonRoute {
+    Model,
+    Actor,
 }
 
 data class XChinaCommentsPage(

@@ -4,6 +4,7 @@ import com.javrocket.avplay.parser.ParseOptions
 import com.javrocket.avplay.service.xchina.XChinaCommentsParser
 import com.javrocket.avplay.service.xchina.XChinaDetailParser
 import com.javrocket.avplay.service.xchina.XChinaListParser
+import com.javrocket.avplay.service.xchina.XChinaPersonRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -34,6 +35,7 @@ class XChinaParserTest {
                 <span class="truncate">模特甲</span>
                 <span class="ml-auto shrink-0 tabular-nums">2026-10-30</span>
               </span>
+              <a href="/model/5f21a825d02c9">模特甲</a>
             </a>
             <a href="/video-series/107" class="group block">系列页，不是视频</a>
             <a href="/video-category/jav">分类页，不是视频</a>
@@ -53,6 +55,7 @@ class XChinaParserTest {
           <meta property="og:image" content="/cover/c.jpg">
           <meta property="og:description" content="这是简介">
         </head><body>
+          <script type="application/ld+json">{"@type":"VideoObject","actor":[{"@type":"Person","name":"女优甲","url":"https://xchina.co/model/6441b582c90d4"}]}</script>
           <h1>标题C</h1>
           <a href="/model/6441b582c90d4">女优甲</a>
           <a href="/video-tag/tag-one">标签一</a>
@@ -99,7 +102,9 @@ class XChinaParserTest {
         assertEquals("卡片标题一", first.title)
         assertEquals("模特私拍", first.category)
         assertEquals("17:30", first.duration)
-        assertEquals("模特甲 · 2026-10-30", first.subtitle)
+        assertEquals("2026-10-30", first.subtitle)
+        assertEquals("模特甲", first.actorLink?.value)
+        assertEquals("https://xchina.co/model/5f21a825d02c9", first.actorLink?.link)
         assertTrue(!first.title.contains("模特私拍"), "浮层分类不能进标题，实际: ${first.title}")
         assertTrue(!first.title.contains("17:30"), "时长不能进标题，实际: ${first.title}")
     }
@@ -124,6 +129,67 @@ class XChinaParserTest {
         assertEquals(listOf("标签一"), detail.tags.map { it.value }, "新站标签路径是 /video-tag/")
         assertTrue(detail.related.any { it.id == "99999abc" })
         assertTrue(detail.related.none { it.id == "6ae4aea8d28b8" }, "相关推荐不应包含自己")
+    }
+
+    @Test
+    fun list_card_parses_model_link_in_card() {
+        val html = """
+            <a href="/video/abcd9999" class="group block">
+              <span class="line-clamp-2">标题带演员链</span>
+              <span class="mt-1 flex h-4 items-center gap-2 text-xs items-center">
+                <a href="/model/abc12345" class="truncate">链上演员</a>
+                <span class="tabular-nums">2026-11-01</span>
+              </span>
+            </a>
+        """.trimIndent()
+        val item = XChinaListParser()
+            .parse(html, ParseOptions(baseUrl = "https://xchina.co")).single()
+        assertEquals("链上演员", item.actorLink?.value)
+        assertEquals("https://xchina.co/model/abc12345", item.actorLink?.link)
+        assertEquals("2026-11-01", item.subtitle)
+    }
+
+    @Test
+    fun list_card_parses_actor_path_in_card() {
+        val html = """
+            <a href="/video/feed0001" class="group block">
+              <span class="line-clamp-2">演员链</span>
+              <span class="mt-1 flex h-4 items-center gap-2 text-xs items-center">
+                <a href="/actor/deadbeef01" class="truncate">AV演员</a>
+                <span class="tabular-nums">2026-09-01</span>
+              </span>
+            </a>
+        """.trimIndent()
+        val item = XChinaListParser()
+            .parse(html, ParseOptions(baseUrl = "https://xchina.co")).single()
+        assertEquals("AV演员", item.actorLink?.value)
+        assertEquals("https://xchina.co/actor/deadbeef01", item.actorLink?.link)
+    }
+
+    @Test
+    fun person_route_follows_link_path() {
+        assertEquals(
+            XChinaPersonRoute.Model,
+            XChinaDetailParser.personRouteFromLink("https://xchina.co/model/abc"),
+        )
+        assertEquals(
+            XChinaPersonRoute.Actor,
+            XChinaDetailParser.personRouteFromLink("https://xchina.co/actor/6b0039cdae749"),
+        )
+    }
+
+    @Test
+    fun detail_parses_actor_anchor_and_ld_json_urls() {
+        val html = """
+          <h1>测试</h1>
+          <a href="/actor/aaa111">演员名</a>
+          <script type="application/ld+json">{"@type":"VideoObject","actor":[{"@type":"Person","name":"LD演员","url":"https://xchina.co/actor/bbb222"}]}</script>
+        """.trimIndent()
+        val detail = XChinaDetailParser("vid001")
+            .parse(html, ParseOptions(baseUrl = "https://xchina.co"))
+        assertEquals(2, detail.actors.size)
+        assertTrue(detail.actors.any { it.link == "https://xchina.co/actor/aaa111" })
+        assertTrue(detail.actors.any { it.link == "https://xchina.co/actor/bbb222" })
     }
 
     @Test

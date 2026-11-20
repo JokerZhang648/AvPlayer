@@ -49,6 +49,7 @@ import com.javrocket.avplay.ui.challenge.ChallengeSheet
 import com.javrocket.avplay.ui.history.BrowseHistoryScreen
 import com.javrocket.avplay.ui.history.historyEntryToBrief
 import com.javrocket.avplay.service.xchina.XChinaDetailParser
+import com.javrocket.avplay.service.xchina.XChinaPersonRoute
 import com.javrocket.avplay.service.xchina.XChinaSource
 import com.javrocket.avplay.ui.detail.DetailScreen
 import com.javrocket.avplay.ui.detail.ModelBrowseScreen
@@ -143,6 +144,12 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                     }
                 }
 
+                fun openXchinaActor(actor: com.javrocket.avplay.model.ValueLink) {
+                    val modelId = XChinaDetailParser.modelIdFromLink(actor.link) ?: return
+                    val route = XChinaDetailParser.personRouteFromLink(actor.link)
+                    modelBrowse = ModelBrowseTarget(modelId, actor.value, route)
+                }
+
                 fun openBrief(brief: VideoBrief) {
                     if (source is HuangGuoSource) {
                         resolvingPlayback = true
@@ -198,6 +205,7 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                             ModelBrowseScreen(
                                 source = source,
                                 modelId = target.modelId,
+                                personRoute = target.route,
                                 title = target.title,
                                 imageLoader = graph.imageLoader,
                                 reloadTick = reloadTick,
@@ -207,6 +215,7 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                     opened = brief
                                 },
                                 onNeedChallenge = { challengeUrl = it },
+                                onOpenActor = if (source is XChinaSource) ::openXchinaActor else null,
                             )
                         } else if (current == null) {
                             HomeScreen(
@@ -219,6 +228,7 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                 onOpenSync = { overlay = OVERLAY_SYNC },
                                 onOpenDiagnostics = { overlay = OVERLAY_DIAG },
                                 onOpenHistory = { overlay = OVERLAY_HISTORY },
+                                onOpenActor = if (source is XChinaSource) ::openXchinaActor else null,
                                 homeSources = if (mainTab == MainTab.Home) homeSources else emptyList(),
                                 onSelectSource = if (mainTab == MainTab.Home && homeSources.size > 1) {
                                     { id -> siteId = id }
@@ -236,16 +246,7 @@ fun App(graph: AppGraph = remember { AppGraph() }) {
                                 onBack = { opened = null },
                                 onNeedChallenge = { challengeUrl = it },
                                 onPlay = { playing = it },
-                                onOpenActor = if (source is XChinaSource) {
-                                    { actor ->
-                                        val modelId = XChinaDetailParser.modelIdFromLink(actor.link)
-                                        if (modelId != null) {
-                                            modelBrowse = ModelBrowseTarget(modelId, actor.value)
-                                        }
-                                    }
-                                } else {
-                                    null
-                                },
+                                onOpenActor = if (source is XChinaSource) ::openXchinaActor else null,
                             )
                         }
                     }
@@ -329,7 +330,11 @@ private const val OVERLAY_SYNC = "sync"
 private const val OVERLAY_DIAG = "diag"
 private const val OVERLAY_HISTORY = "history"
 
-private data class ModelBrowseTarget(val modelId: String, val title: String)
+private data class ModelBrowseTarget(
+    val modelId: String,
+    val title: String,
+    val route: XChinaPersonRoute,
+)
 
 private val NavAccent = Color(0xFFD68A94)
 

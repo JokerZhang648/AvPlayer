@@ -27,7 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.javrocket.avplay.core.AppError
+import com.javrocket.avplay.model.ValueLink
 import com.javrocket.avplay.model.VideoBrief
+import com.javrocket.avplay.service.xchina.XChinaPersonRoute
 import com.javrocket.avplay.service.xchina.XChinaSource
 import com.javrocket.avplay.ui.home.XChinaWidePosterCard
 import com.javrocket.avplay.ui.media.ImageLoader
@@ -37,21 +39,23 @@ import com.javrocket.avplay.ui.media.ImageLoader
 fun ModelBrowseScreen(
     source: XChinaSource,
     modelId: String,
+    personRoute: XChinaPersonRoute,
     title: String,
     imageLoader: ImageLoader,
     reloadTick: Int,
     onBack: () -> Unit,
     onOpen: (VideoBrief) -> Unit,
     onNeedChallenge: (String) -> Unit,
+    onOpenActor: ((ValueLink) -> Unit)? = null,
 ) {
   var items by remember { mutableStateOf<List<VideoBrief>?>(null) }
     var error by remember { mutableStateOf<Throwable?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(modelId, reloadTick, retryKey) {
+    LaunchedEffect(modelId, personRoute, reloadTick, retryKey) {
         items = null
         error = null
-        source.modelVideos(modelId).fold(
+        source.personVideos(modelId, route = personRoute).fold(
             onSuccess = { page -> items = page.items },
             onFailure = { error = it },
         )
@@ -116,6 +120,7 @@ fun ModelBrowseScreen(
                         imageLoader = imageLoader,
                         coverHeaders = emptyMap(),
                         onClick = { onOpen(item) },
+                        onOpenActor = onOpenActor,
                     )
                 }
             }
