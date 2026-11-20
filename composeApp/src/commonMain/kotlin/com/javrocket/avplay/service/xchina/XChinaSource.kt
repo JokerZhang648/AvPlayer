@@ -19,7 +19,8 @@ class XChinaSource(
 
     override suspend fun home(): Result<HomeFeed> =
         service.getSeries(page = 1).map { items ->
-            HomeFeed(listOf(VideoSection("近期热门", items)))
+            // /videos 首屏只有前 12 条是「近期热门」，其余为普通列表。
+            HomeFeed(listOf(VideoSection("近期热门", items.take(HOT_SECTION_LIMIT))))
         }
 
     override suspend fun detail(id: String): Result<VideoDetail> = service.getVideoDetail(id)
@@ -43,6 +44,7 @@ class XChinaSource(
 
     companion object {
         private const val PAGE_SIZE = 20
+        const val HOT_SECTION_LIMIT = 12
         val DEFAULT_BASE_URL: String get() = XChinaService.DEFAULT_BASE_URL
     }
 }

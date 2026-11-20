@@ -1,6 +1,5 @@
 package com.javrocket.avplay.ui.home
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,20 +48,6 @@ fun XChinaWidePosterCard(
                 headers = coverHeaders,
                 modifier = Modifier.fillMaxSize(),
             )
-            item.code?.takeIf { it.isNotBlank() }?.let { code ->
-                Text(
-                    text = code,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .background(Color(0xE6FFFFFF), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    color = Color(0xFF212121),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
         }
 
         Text(
